@@ -2,12 +2,16 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// 画像の読み込み (User fixed path to jpg)
+const titleImage = new Image();
+titleImage.src = 'bow_man_title.jpg';
+
 // ゲーム設定
 const CONFIG = {
     canvasWidth: 800,
     canvasHeight: 600,
     gravity: 0.1, // 重力
-    windChange: 0.005,
+    // Wind is now fixed per stage
     screenLoop: true, // 画面ループ有効
     initialPlayers: 1, // 初期人間プレイヤー数
     initialComputers: 1 // 初期CPU数
@@ -53,6 +57,54 @@ let cpuThinking = false; // CPU思考中フラグ
 // タイトル画面用設定
 let settingHumans = 1;
 let settingCPUs = 1;
+
+// ショップ用状態
+let shopCursor = 0; // 選択中のプレイヤーインデックス
+
+// サウンドマネージャー
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+const Sound = {
+    shoot: () => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.1);
+    },
+    hit: () => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.type = 'square'; // 爆発っぽい矩形波
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+    },
+    heal: () => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.setValueAtTime(400, audioCtx.currentTime);
+        osc.frequency.linearRampToValueAtTime(600, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.3);
+    }
+};
 
 // ---------------------------------------------------------
 // クラス定義
@@ -111,13 +163,6 @@ class Terrain {
                 }
             }
         }
-
-        fires = fires.filter(f => {
-            const dx = Math.abs(f.x - cx);
-            const distX = CONFIG.screenLoop ? Math.min(dx, CONFIG.canvasWidth - dx) : dx;
-            const distY = Math.abs(f.y - cy);
-            return Math.sqrt(distX * distX + distY * distY) > radius;
-        });
     }
 
     draw(ctx) {
@@ -137,39 +182,60 @@ class Terrain {
 }
 
 /**
- * 炎クラス
+ * 炎クラス (パーティクルで表現)
  */
 class Fire {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.life = 200;
+        // life removed for persistence
         this.frame = 0;
+        this.particles = [];
     }
 
     update(terrain) {
-        this.life--;
+        // this.life--; // Removed for persistence
         this.frame++;
 
+        // 地面に追従
         const groundY = terrain.getHeight(this.x);
         this.y = groundY;
 
-        players.forEach(p => {
-            if (p.hp > 0 &&
-                Math.abs(this.x - p.x) < p.width &&
-                Math.abs(this.y - (p.y - p.height / 2)) < p.height) {
-                if (this.frame % 10 === 0) {
-                    p.takeDamage(1);
-                }
-            }
-        });
+        // パーティクル生成
+        if (this.frame % 5 === 0) {
+            this.particles.push({
+                x: this.x + (Math.random() * 10 - 5),
+                y: this.y,
+                vx: (Math.random() - 0.5) * 0.5,
+                vy: -Math.random() * 2 - 1, // 上昇
+                life: 30,
+                color: Math.random() > 0.5 ? 'orange' : 'red'
+            });
+        }
+
+        // パーティクル更新
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+            const p = this.particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life--;
+            if (p.life <= 0) this.particles.splice(i, 1);
+        }
+
+        // ダメージ判定は削除 (ターン終了時に判定)
     }
 
     draw(ctx) {
-        ctx.fillStyle = `rgba(255, ${Math.random() * 100 + 50}, 0, ${this.life / 200})`;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y - 5, 5 + Math.random() * 3, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.globalCompositeOperation = 'lighter'; // 加算合成で炎っぽく
+        this.particles.forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.globalAlpha = p.life / 30;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.globalAlpha = 1.0;
+        ctx.globalCompositeOperation = 'source-over';
     }
 }
 
@@ -186,13 +252,17 @@ class Projectile {
         this.type = type || 'NORMAL';
         this.radius = 3;
         this.isActive = true;
+        this.rotation = Math.atan2(vy, vx);
     }
 
     update() {
         this.vy += CONFIG.gravity;
-        this.vx += wind;
+        this.vx += wind; // 風の影響
         this.x += this.vx;
         this.y += this.vy;
+
+        // 速度から角度を更新
+        this.rotation = Math.atan2(this.vy, this.vx);
 
         if (CONFIG.screenLoop) {
             if (this.x < 0) this.x += CONFIG.canvasWidth;
@@ -225,14 +295,15 @@ class Projectile {
 
     explode(x, y) {
         this.isActive = false;
+        Sound.hit(); // 効果音
 
         particles.push(new Explosion(x, y, 30));
 
-        let explosionRadius = 20; // 通常は小さく（調整：30 -> 20）
+        let explosionRadius = 20;
         let damageMultiplier = 1.0;
 
         if (this.type === 'BOMB') {
-            explosionRadius = 80; // 爆矢は広く（調整：60 -> 80）
+            explosionRadius = 80;
             damageMultiplier = 1.5;
             particles.push(new Explosion(x, y, 60));
         } else if (this.type === 'FIRE') {
@@ -242,21 +313,20 @@ class Projectile {
             }
         } else {
             // NORMAL
-            explosionRadius = 10; // さらに小さく
+            explosionRadius = 10;
         }
 
         terrain.destroy(x, y, explosionRadius);
 
+        // ダメージ判定
         players.forEach(p => {
             const dx = Math.abs(x - p.x);
             const distX = CONFIG.screenLoop ? Math.min(dx, CONFIG.canvasWidth - dx) : dx;
             const distY = Math.abs(y - (p.y - p.height / 2));
             const dist = Math.sqrt(distX * distX + distY * distY);
 
-            // ダメージ判定半径は少し広めに
             if (dist < explosionRadius * 2.0 + 20) {
                 let damage = 0;
-                // 中心に近いほど大ダメージ
                 const damageRadius = explosionRadius * 2.0 + 20;
                 damage = Math.floor(50 * damageMultiplier * (1 - dist / damageRadius));
 
@@ -270,17 +340,32 @@ class Projectile {
     }
 
     draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.rotation);
+
+        // 矢の描画
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        // 軸
+        ctx.moveTo(-10, 0);
+        ctx.lineTo(10, 0);
+        // 先端
+        ctx.lineTo(5, -3);
+        ctx.moveTo(10, 0);
+        ctx.lineTo(5, 3);
+        // 羽根
+        ctx.moveTo(-10, 0);
+        ctx.lineTo(-15, -3);
+        ctx.moveTo(-10, 0);
+        ctx.lineTo(-15, 3);
 
-        if (this.type === 'NORMAL') ctx.fillStyle = 'white';
-        else if (this.type === 'FIRE') ctx.fillStyle = 'red';
-        else if (this.type === 'BOMB') ctx.fillStyle = 'black';
+        if (this.type === 'NORMAL') ctx.strokeStyle = 'white';
+        else if (this.type === 'FIRE') ctx.strokeStyle = 'red';
+        else if (this.type === 'BOMB') ctx.strokeStyle = 'black';
 
-        ctx.fill();
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = 1;
+        ctx.lineWidth = 2;
         ctx.stroke();
+        ctx.restore();
     }
 }
 
@@ -329,18 +414,20 @@ class Player {
         this.x = x;
         this.y = 0;
         this.width = 20;
-        this.height = 30;
+        this.height = 30; // 判定用サイズ
         this.hp = 100;
         this.angle = isCPU ? Math.floor(Math.random() * 180) : 45;
         this.power = isCPU ? 30 + Math.floor(Math.random() * 50) : 50;
         this.moveSpeed = 2;
-        this.fuel = 100;
+        this.fuel = 10; // 初期燃料
         this.money = 0;
         this.isCPU = isCPU;
+        this.isStable = true; // 着地しているか
 
         this.inventory = {
             'FIRE': 0,
-            'BOMB': 0
+            'BOMB': 0,
+            'HEALTH': 0
         };
         this.currentWeapon = 'NORMAL';
     }
@@ -351,8 +438,10 @@ class Player {
         if (this.y < groundY) {
             this.y += 2;
             if (this.y > groundY) this.y = groundY;
+            this.isStable = (this.y >= groundY);
         } else {
             this.y = groundY;
+            this.isStable = true;
         }
 
         if (this.y >= CONFIG.canvasHeight - 10) {
@@ -363,49 +452,96 @@ class Player {
     draw(ctx) {
         if (this.hp <= 0) return;
 
-        const drawX = this.x - this.width / 2;
-        const drawY = this.y - this.height;
+        const drawX = this.x;
+        const drawY = this.y;
 
-        ctx.fillStyle = this.color;
-        ctx.fillRect(drawX, drawY, this.width, this.height);
+        // Archer Visual (Stick figure)
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        // Body
+        ctx.moveTo(drawX, drawY); // Feet
+        ctx.lineTo(drawX, drawY - 20); // Waist
+        ctx.lineTo(drawX, drawY - 35); // Neck
+        // Head
+        ctx.moveTo(drawX + 5, drawY - 40);
+        ctx.arc(drawX, drawY - 40, 5, 0, Math.PI * 2);
+        // Legs
+        ctx.moveTo(drawX, drawY - 20);
+        ctx.lineTo(drawX - 10, drawY);
+        ctx.moveTo(drawX, drawY - 20);
+        ctx.lineTo(drawX + 10, drawY);
+        ctx.stroke();
+
+        // 弓の描画 (Curve)
+        const rad = (this.angle * Math.PI) / 180;
+        const cx = this.x;
+        const cy = this.y - 35; // Shoulder height (center of rotation)
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-rad);
+
+        // 弓本体
+        ctx.beginPath();
+        ctx.strokeStyle = '#8B4513'; // SaddleBrown
+        ctx.lineWidth = 3;
+        // 弓なりの形 (x,y) = (0,0) is center
+        ctx.moveTo(0, -15);
+        ctx.quadraticCurveTo(10, 0, 0, 15);
+        ctx.stroke();
+
+        // 弦
+        ctx.beginPath();
+        ctx.strokeStyle = '#DDD';
+        ctx.lineWidth = 1;
+        ctx.moveTo(0, -15);
+        ctx.lineTo(0, 15);
+        ctx.stroke();
+
+        // 矢 (Health Packの時は描画しない、または薬箱を描画？シンプルに矢を描画せず)
+        if (this.currentWeapon !== 'HEALTH') {
+            ctx.beginPath();
+            if (this.currentWeapon === 'NORMAL') ctx.strokeStyle = 'white';
+            else if (this.currentWeapon === 'FIRE') ctx.strokeStyle = 'red';
+            else if (this.currentWeapon === 'BOMB') ctx.strokeStyle = 'black';
+            ctx.lineWidth = 2;
+
+            ctx.moveTo(-5, 0); // Nock
+            ctx.lineTo(20, 0); // Tip
+
+            // Arrow Head
+            ctx.lineTo(15, -3);
+            ctx.moveTo(20, 0);
+            ctx.lineTo(15, 3);
+
+            ctx.stroke();
+        }
+
+        ctx.restore();
 
         // CPU表示
         if (this.isCPU) {
             ctx.fillStyle = 'white';
             ctx.font = '10px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText('CPU', this.x, drawY - 25);
+            ctx.fillText('CPU', this.x, drawY - 50);
         }
 
-        const rad = (this.angle * Math.PI) / 180;
-        const cx = this.x;
-        const cy = this.y - (this.height * 0.7);
-        const barrelLen = 30;
-
-        const aimX = cx + Math.cos(-rad) * barrelLen;
-        const aimY = cy + Math.sin(-rad) * barrelLen;
-
-        ctx.beginPath();
-        if (this.currentWeapon === 'NORMAL') ctx.strokeStyle = 'white';
-        else if (this.currentWeapon === 'FIRE') ctx.strokeStyle = 'red';
-        else if (this.currentWeapon === 'BOMB') ctx.strokeStyle = 'black';
-
-        ctx.lineWidth = 3;
-        ctx.moveTo(cx, cy);
-        ctx.lineTo(aimX, aimY);
-        ctx.stroke();
-
-        ctx.fillStyle = 'orange';
-        ctx.fillRect(drawX, drawY - 10, (this.width * this.fuel) / 100, 4);
-
+        // HP Bar
         ctx.fillStyle = 'red';
-        ctx.fillRect(drawX, drawY - 16, this.width, 4);
+        ctx.fillRect(drawX - 15, drawY - 55, 30, 4);
         ctx.fillStyle = 'lime';
-        ctx.fillRect(drawX, drawY - 16, (this.width * Math.max(0, this.hp)) / 100, 4);
+        ctx.fillRect(drawX - 15, drawY - 55, (30 * Math.max(0, this.hp)) / 100, 4);
+
+        // Fuel Bar (Scale for display since max is variable but usually 10-20ish active)
+        // Max fuel capacity is 100, let's scale it to width 30
+        ctx.fillStyle = 'orange';
+        ctx.fillRect(drawX - 15, drawY - 50, (30 * Math.min(100, this.fuel)) / 100, 2);
     }
 
     move(dir, terrain) {
-        if (this.fuel > 0 && this.hp > 0) {
+        if (this.fuel > 0 && this.hp > 0 && this.isStable) {
             let nextX = this.x + dir * this.moveSpeed;
             this.x = nextX;
             this.fuel -= 1;
@@ -435,7 +571,7 @@ function init() {
     canvas.height = CONFIG.canvasHeight;
 
     window.addEventListener('keydown', (e) => {
-        if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyS', 'KeyF', 'KeyB', 'KeyQ', 'KeyO', 'KeyP'].indexOf(e.code) > -1) {
+        if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyS', 'KeyF', 'KeyB', 'KeyQ', 'KeyO', 'KeyP', 'Digit1', 'Digit2', 'Digit3'].indexOf(e.code) > -1) {
             e.preventDefault();
         }
         input.keys[e.code] = true;
@@ -457,13 +593,15 @@ function initGame() {
     projectiles = [];
     particles = [];
     fires = [];
+
+    // 風はステージごとに固定
     wind = (Math.random() * 0.2) - 0.1;
 
     randomizeBackground();
 
     // プレイヤー生成（人間 + CPU）
     const totalPlayers = settingHumans + settingCPUs;
-    const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'cyan', 'magenta', 'orange'];
+    const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'cyan', 'magenta', 'orange', 'lime', 'pink'];
 
     for (let i = 0; i < totalPlayers; i++) {
         const isCPU = i >= settingHumans;
@@ -545,6 +683,18 @@ function isKeyDown(code) {
 // ---------------------------------------------------------
 
 function nextTurn() {
+    // ターン終了時の炎ダメージ判定
+    const currentP = players[currentPlayerIndex];
+    if (currentP.hp > 0) {
+        const inFire = fires.some(f =>
+            Math.abs(f.x - currentP.x) < currentP.width &&
+            Math.abs(f.y - (currentP.y - currentP.height / 2)) < currentP.height
+        );
+        if (inFire) {
+            currentP.takeDamage(15); // 炎上ダメージ
+        }
+    }
+
     const alivePlayers = players.filter(p => p.hp > 0);
     if (alivePlayers.length <= 1) {
         if (alivePlayers.length === 1) {
@@ -555,6 +705,7 @@ function nextTurn() {
         // CPUの買い物ロジックを実行してからショップへ
         players.filter(p => p.isCPU).forEach(cpu => cpuShopLogic(cpu));
 
+        shopCursor = 0; // ショップのリセット
         currentState = GameState.SHOP;
         return;
     }
@@ -563,8 +714,8 @@ function nextTurn() {
         currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
     } while (players[currentPlayerIndex].hp <= 0);
 
-    wind = (Math.random() * 0.2) - 0.1;
-    players[currentPlayerIndex].fuel = 100;
+    // 燃料蓄積 (Max 100)
+    players[currentPlayerIndex].fuel = Math.min(100, players[currentPlayerIndex].fuel + 10);
 
     isTurnActive = true;
     cpuThinking = false;
@@ -576,10 +727,15 @@ function nextTurn() {
 
 function updateTitle() {
     // 設定変更
-    if (isKeyPressed('ArrowRight')) settingHumans = Math.min(5, settingHumans + 1);
+    if (isKeyPressed('ArrowRight')) settingHumans = Math.min(10, settingHumans + 1); // Max 10 人間
     if (isKeyPressed('ArrowLeft')) settingHumans = Math.max(0, settingHumans - 1);
-    if (isKeyPressed('ArrowUp')) settingCPUs = Math.min(9, settingCPUs + 1);
+    if (isKeyPressed('ArrowUp')) settingCPUs = Math.min(10, settingCPUs + 1); // Max 10 CPU
     if (isKeyPressed('ArrowDown')) settingCPUs = Math.max(0, settingCPUs - 1);
+
+    // 合計上限チェック
+    if (settingHumans + settingCPUs > 10) {
+        // 増やした方を戻すのは難しいので、設定時にキャップする
+    }
 
     // 最低2人は必要
     if (settingHumans + settingCPUs < 1) settingHumans = 1;
@@ -594,19 +750,27 @@ function drawTitle() {
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // 画像表示
+    if (titleImage.complete) {
+        const imgWidth = 600;
+        const imgHeight = 200;
+        ctx.drawImage(titleImage, (canvas.width - imgWidth) / 2, 50, imgWidth, imgHeight);
+    } else {
+        ctx.fillStyle = 'white';
+        ctx.font = '60px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('BOW MAN', canvas.width / 2, canvas.height / 2 - 100);
+    }
+
     ctx.fillStyle = 'white';
     ctx.textAlign = 'center';
-
-    ctx.font = '60px monospace';
-    ctx.fillText('BOW MAN', canvas.width / 2, canvas.height / 2 - 100);
-
     ctx.font = '20px monospace';
-    ctx.fillText('SETTINGS', canvas.width / 2, canvas.height / 2 - 20);
-    ctx.fillText(`Humans: ${settingHumans} (Left/Right)`, canvas.width / 2, canvas.height / 2 + 20);
-    ctx.fillText(`CPUs:   ${settingCPUs} (Up/Down)`, canvas.width / 2, canvas.height / 2 + 50);
+    ctx.fillText('SETTINGS', canvas.width / 2, canvas.height / 2 + 50);
+    ctx.fillText(`Humans: ${settingHumans} (Left/Right)`, canvas.width / 2, canvas.height / 2 + 80);
+    ctx.fillText(`CPUs:   ${settingCPUs} (Up/Down)`, canvas.width / 2, canvas.height / 2 + 110);
 
     ctx.fillStyle = 'yellow';
-    ctx.fillText('Press SPACE to Start', canvas.width / 2, canvas.height / 2 + 120);
+    ctx.fillText('Press SPACE to Start', canvas.width / 2, canvas.height / 2 + 180);
 }
 
 // ---------------------------------------------------------
@@ -622,22 +786,21 @@ function updateGame() {
     particles = particles.filter(p => p.isActive);
 
     fires.forEach(f => f.update(terrain));
-    fires = fires.filter(f => f.life > 0);
+    // fires = fires.filter(f => f.life > 0); // 永続化のため削除
 
     const p = players[currentPlayerIndex];
 
     // プレイヤー行動
-    if (isTurnActive && projectiles.length === 0 && p.hp > 0) {
+    // 落下中（!isStable）は行動不能にする
+    if (isTurnActive && projectiles.length === 0 && p.hp > 0 && p.isStable) {
         if (p.isCPU) {
             // CPU AI
             if (!cpuThinking) {
                 cpuThinking = true;
-                // 少し考えてから発射
+                // 少し移動する
                 setTimeout(() => {
                     executeCpuTurn(p);
-                    // 発射後はfireProjectileでisTurnActive=falseになるが、
-                    // もし発射されなかった場合のガードが必要ならここに書く
-                    // 今回は必ず発射される
+                    // 発射後はfireProjectileでisTurnActive=falseになる
                     cpuThinking = false;
                 }, 1000 + Math.random() * 1000);
             }
@@ -651,7 +814,7 @@ function updateGame() {
             if (isKeyDown('ArrowDown')) p.power = Math.max(0, p.power - 1);
 
             if (isKeyPressed('KeyW') || isKeyPressed('KeyS')) {
-                const types = ['NORMAL', 'FIRE', 'BOMB'];
+                const types = ['NORMAL', 'FIRE', 'BOMB', 'HEALTH'];
                 let idx = types.indexOf(p.currentWeapon);
                 if (isKeyPressed('KeyW')) idx = (idx + 1) % types.length;
                 if (isKeyPressed('KeyS')) idx = (idx - 1 + types.length) % types.length;
@@ -659,8 +822,18 @@ function updateGame() {
             }
 
             if (isKeyPressed('Space')) {
-                fireProjectile(p);
-                isTurnActive = false;
+                if (p.currentWeapon === 'HEALTH') {
+                    // 回復アイテム使用
+                    if (p.inventory['HEALTH'] > 0) {
+                        useHealthItem(p);
+                        isTurnActive = false;
+                        setTimeout(() => nextTurn(), 1000);
+                    }
+                } else {
+                    Sound.shoot(); // 発射音
+                    fireProjectile(p);
+                    isTurnActive = false;
+                }
             }
         }
     }
@@ -668,12 +841,37 @@ function updateGame() {
     players.forEach(player => player.update(terrain));
 }
 
+function useHealthItem(player) {
+    if (player.inventory['HEALTH'] > 0) {
+        player.inventory['HEALTH']--;
+        player.hp = Math.min(100, player.hp + 50);
+        Sound.heal();
+        // エフェクト（簡易）
+        particles.push(new Explosion(player.x, player.y - 20, 20));
+    }
+}
+
 function executeCpuTurn(cpu) {
-    // CPU Turn Logic
+    // 0. 移動フェーズ (少しだけ移動する)
+    const moveDir = Math.random() > 0.5 ? 1 : -1;
+    const moveAmount = Math.floor(Math.random() * 5);
+    for (let i = 0; i < moveAmount; i++) {
+        cpu.move(moveDir, terrain);
+    }
+
+    // HP回復優先
+    if (cpu.hp < 50 && cpu.inventory['HEALTH'] > 0) {
+        cpu.currentWeapon = 'HEALTH';
+        useHealthItem(cpu);
+        isTurnActive = false;
+        setTimeout(() => nextTurn(), 1000); // ターンエンド処理
+        return;
+    }
+
     // 1. ターゲット選択
     const enemies = players.filter(p => p.id !== cpu.id && p.hp > 0);
     if (enemies.length === 0) {
-        // 敵がいない場合、適当に撃ってターン終了
+        Sound.shoot();
         fireProjectile(cpu);
         isTurnActive = false;
         return;
@@ -705,6 +903,7 @@ function executeCpuTurn(cpu) {
     cpu.power = Math.min(100, Math.max(10, targetPower));
 
     // 実行
+    Sound.shoot();
     fireProjectile(cpu);
     isTurnActive = false;
 }
@@ -724,7 +923,7 @@ function fireProjectile(player) {
     const vy = Math.sin(-rad) * speed;
 
     const x = player.x + Math.cos(-rad) * 20;
-    const y = (player.y - player.height * 0.7) + Math.sin(-rad) * 20;
+    const y = (player.y - 35) + Math.sin(-rad) * 20; // 発射位置調整
 
     projectiles.push(new Projectile(x, y, vx, vy, player.id, player.currentWeapon));
 
@@ -753,6 +952,18 @@ function drawGame() {
     projectiles.forEach(p => p.draw(ctx));
     particles.forEach(p => p.draw(ctx));
 
+    // 画面外インジケータ
+    projectiles.forEach(p => {
+        if (p.y < 0 && p.isActive) {
+            ctx.fillStyle = 'yellow';
+            ctx.beginPath();
+            ctx.moveTo(p.x, 10);
+            ctx.lineTo(p.x - 5, 20);
+            ctx.lineTo(p.x + 5, 20);
+            ctx.fill();
+        }
+    });
+
     drawHUD();
 }
 
@@ -780,33 +991,55 @@ function drawHUD() {
 
     ctx.shadowBlur = 0;
 
+    // Wind Display Update
     ctx.textAlign = 'center';
-    ctx.fillText(`Wind: ${wind.toFixed(3)}`, canvas.width / 2, 30);
-    ctx.beginPath();
-    ctx.moveTo(canvas.width / 2, 50);
-    ctx.lineTo(canvas.width / 2 + wind * 500, 50);
+    ctx.fillText(`Wind`, canvas.width / 2, 20);
+
+    // 矢印描画
+    const cx = canvas.width / 2;
+    const cy = 40;
+    const windScale = 300; // 長さ係数
+    const windLen = wind * windScale;
+    const thickness = Math.abs(wind) * 20 + 1; // 太さ係数
+
     ctx.strokeStyle = 'white';
-    ctx.lineWidth = 2;
+    ctx.fillStyle = 'white';
+    ctx.lineWidth = thickness;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + windLen, cy);
     ctx.stroke();
+
+    // 矢印先端
+    ctx.beginPath();
+    if (wind > 0) {
+        ctx.moveTo(cx + windLen, cy);
+        ctx.lineTo(cx + windLen - 5, cy - 5);
+        ctx.lineTo(cx + windLen - 5, cy + 5);
+    } else {
+        ctx.moveTo(cx + windLen, cy);
+        ctx.lineTo(cx + windLen + 5, cy - 5);
+        ctx.lineTo(cx + windLen + 5, cy + 5);
+    }
+    ctx.fill();
 
     // 操作ヘルプ（人間の場合のみ）
     if (!p.isCPU) {
         ctx.textAlign = 'right';
         ctx.fillText('Arrows: Aim/Power | A/D: Move | W/S: Weapon', canvas.width - 10, 20);
-        ctx.fillText('SPACE: Fire', canvas.width - 10, 40);
+        ctx.fillText('SPACE: Fire/Use', canvas.width - 10, 40);
     }
 }
 
 // ---------------------------
-// ショップ
+// ショップ (Overhauled)
 // ---------------------------
 
 function cpuShopLogic(cpu) {
-    // 1. HP回復優先
     if (cpu.hp < 50 && cpu.money >= ITEMS.HEALTH.price) {
         buyItem(cpu, 'HEALTH');
     }
-    // 2. 強い武器購入
     if (cpu.money >= ITEMS.BOMB.price) {
         buyItem(cpu, 'BOMB');
     }
@@ -816,13 +1049,20 @@ function cpuShopLogic(cpu) {
 }
 
 function updateShop() {
-    // 人間プレイヤーの操作
-    if (isKeyPressed('KeyQ')) buyItem(players[0], 'FIRE');
-    if (isKeyPressed('KeyW')) buyItem(players[0], 'BOMB');
+    // プレイヤー選択
+    if (isKeyPressed('ArrowRight')) {
+        shopCursor = (shopCursor + 1) % players.length;
+    }
+    if (isKeyPressed('ArrowLeft')) {
+        shopCursor = (shopCursor - 1 + players.length) % players.length;
+    }
 
-    if (players.length > 1 && players[1] && !players[1].isCPU) {
-        if (isKeyPressed('KeyO')) buyItem(players[1], 'FIRE');
-        if (isKeyPressed('KeyP')) buyItem(players[1], 'BOMB');
+    // アイテム購入 (1/2/3キー or Q/W/E)
+    const targetPlayer = players[shopCursor];
+    if (targetPlayer && !targetPlayer.isCPU) {
+        if (isKeyPressed('Digit1') || isKeyPressed('KeyQ')) buyItem(targetPlayer, 'FIRE');
+        if (isKeyPressed('Digit2') || isKeyPressed('KeyW')) buyItem(targetPlayer, 'BOMB');
+        if (isKeyPressed('Digit3') || isKeyPressed('KeyE')) buyItem(targetPlayer, 'HEALTH');
     }
 
     if (isKeyPressed('Space')) {
@@ -835,11 +1075,8 @@ function buyItem(player, type) {
     const item = ITEMS[type];
     if (player.money >= item.price) {
         player.money -= item.price;
-        if (type === 'HEALTH') {
-            player.hp = Math.min(100, player.hp + 50);
-        } else {
-            player.inventory[type] = (player.inventory[type] || 0) + 1;
-        }
+        // HEALTH also goes to inventory now, not instant use
+        player.inventory[type] = (player.inventory[type] || 0) + 1;
     }
 }
 
@@ -847,16 +1084,20 @@ function startNextRound() {
     terrain = new Terrain(CONFIG.canvasWidth, CONFIG.canvasHeight);
     randomizeBackground();
 
+    // 風も更新（ステージ毎）
+    wind = (Math.random() * 0.2) - 0.1;
+
     players.forEach((p, index) => {
         p.hp = 100;
         p.x = (CONFIG.canvasWidth / (players.length + 1)) * (index + 1);
         p.y = 0;
         p.angle = index === 1 ? 135 : 45;
+        p.isStable = true;
+        // 燃料もリセットでいいか？蓄積はターン毎。次ラウンドはリセットでOK
+        p.fuel = 10;
     });
 
     currentPlayerIndex = 0;
-
-    // BUG FIX: ターン状態をリセット
     isTurnActive = true;
     cpuThinking = false;
 
@@ -868,34 +1109,42 @@ function drawShop() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.fillStyle = 'white';
-    ctx.font = '30px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('SHOP', canvas.width / 2, 50);
 
-    ctx.font = '16px monospace';
+    ctx.font = '30px monospace';
+    ctx.fillText('SHOP', canvas.width / 2, 40);
 
-    // 全プレイヤー表示
-    players.forEach((p, i) => {
-        let info = `Player ${p.id}`;
-        if (p.isCPU) info += " (CPU)";
-        info += `: $${p.money} | Fire:${p.inventory.FIRE} Bomb:${p.inventory.BOMB}`;
+    ctx.font = '20px monospace';
+    ctx.fillText('< Select Player >', canvas.width / 2, 80);
 
+    // 選択中のプレイヤー情報
+    const p = players[shopCursor];
+    if (p) {
         ctx.fillStyle = p.color;
-        ctx.fillText(info, canvas.width / 2, 100 + i * 30);
-    });
+        ctx.font = '24px monospace';
+        let name = `Player ${p.id}`;
+        if (p.isCPU) name += " (CPU)";
+        ctx.fillText(name, canvas.width / 2, 120);
 
-    // 操作ヘルプ
-    ctx.textAlign = 'left';
-    ctx.fillStyle = 'white';
-    const startY = 100 + players.length * 30 + 50;
+        ctx.fillStyle = 'white';
+        ctx.font = '20px monospace';
+        ctx.fillText(`Money: $${p.money} | HP: ${p.hp}`, canvas.width / 2, 150);
+        ctx.fillText(`Inventory: Fire: ${p.inventory.FIRE} | Bomb: ${p.inventory.BOMB} | Health: ${p.inventory.HEALTH}`, canvas.width / 2, 180);
 
-    if (players[0] && !players[0].isCPU) {
-        ctx.fillText(`Player 1: [Q] Fire($150) [W] Bomb($300)`, 200, startY);
+        // メニュー
+        if (!p.isCPU) {
+            const startY = 250;
+            ctx.textAlign = 'left';
+            ctx.fillText(`[1] Buy Fire Arrow  ($150)`, 250, startY);
+            ctx.fillText(`[2] Buy Bomb Arrow  ($300)`, 250, startY + 40);
+            ctx.fillText(`[3] Buy Health Pack ($200)`, 250, startY + 80);
+        } else {
+            ctx.fillStyle = 'gray';
+            ctx.fillText("(CPU Buys Automatically)", canvas.width / 2, 250);
+        }
     }
-    if (players[1] && !players[1].isCPU) {
-        ctx.fillText(`Player 2: [O] Fire($150) [P] Bomb($300)`, 200, startY + 30);
-    }
 
+    ctx.fillStyle = 'yellow';
     ctx.textAlign = 'center';
     ctx.fillText('Press SPACE to Start Next Round', canvas.width / 2, canvas.height - 50);
 }
