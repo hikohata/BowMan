@@ -30,7 +30,9 @@ const ITEMS = {
     'NORMAL': { name: 'Normal Arrow', price: 0, type: 'NORMAL' },
     'FIRE': { name: 'Fire Arrow', price: 150, type: 'FIRE' },
     'BOMB': { name: 'Bomb Arrow', price: 300, type: 'BOMB' },
-    'HEALTH': { name: 'Health Pack', price: 200, type: 'HEALTH' }
+    'HEALTH': { name: 'Health Pack', price: 200, type: 'HEALTH' },
+    'TRIPLE': { name: 'Triple Arrow', price: 250, type: 'TRIPLE' },
+    'LASER': { name: 'Laser Arrow', price: 400, type: 'LASER' }
 };
 
 // 現在の状態
@@ -256,15 +258,34 @@ class Projectile {
     }
 
     update() {
-        this.vy += CONFIG.gravity;
-        this.vx += wind; // 風の影響
+        if (this.type !== 'LASER') {
+            this.vy += CONFIG.gravity;
+            this.vx += wind; // 風の影響
+        }
         this.x += this.vx;
         this.y += this.vy;
 
         // 速度から角度を更新
         this.rotation = Math.atan2(this.vy, this.vx);
 
-        if (CONFIG.screenLoop) {
+        if (this.type === 'LASER') {
+            // Laser Bounce Logic
+            if (this.x < 0 || this.x > CONFIG.canvasWidth) {
+                this.vx *= -1;
+                this.x += this.vx;
+                this.rotation = Math.atan2(this.vy, this.vx);
+            }
+            if (this.y < 0) {
+                this.vy *= -1;
+                this.y += this.vy;
+                this.rotation = Math.atan2(this.vy, this.vx);
+            }
+
+            // Laser Lifespan (to prevent infinite bouncing)
+            if (!this.life) this.life = 300; // 5 seconds approx
+            this.life--;
+            if (this.life <= 0) this.isActive = false;
+        } else if (CONFIG.screenLoop) {
             if (this.x < 0) this.x += CONFIG.canvasWidth;
             if (this.x >= CONFIG.canvasWidth) this.x -= CONFIG.canvasWidth;
         }
@@ -344,27 +365,42 @@ class Projectile {
         ctx.translate(this.x, this.y);
         ctx.rotate(this.rotation);
 
-        // 矢の描画
         ctx.beginPath();
-        // 軸
-        ctx.moveTo(-10, 0);
-        ctx.lineTo(10, 0);
-        // 先端
-        ctx.lineTo(5, -3);
-        ctx.moveTo(10, 0);
-        ctx.lineTo(5, 3);
-        // 羽根
-        ctx.moveTo(-10, 0);
-        ctx.lineTo(-15, -3);
-        ctx.moveTo(-10, 0);
-        ctx.lineTo(-15, 3);
 
-        if (this.type === 'NORMAL') ctx.strokeStyle = 'white';
-        else if (this.type === 'FIRE') ctx.strokeStyle = 'red';
-        else if (this.type === 'BOMB') ctx.strokeStyle = 'black';
+        if (this.type === 'LASER') {
+            // Laser drawing
+            ctx.strokeStyle = '#00FF00'; // Lime Green
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#00FF00';
+            ctx.lineWidth = 4;
+            ctx.moveTo(-20, 0); // Longer beam
+            ctx.lineTo(20, 0);
+            ctx.stroke();
+            ctx.shadowBlur = 0; // Reset shadow
+        } else {
+            // Normal arrow drawing
+            // 軸
+            ctx.moveTo(-10, 0);
+            ctx.lineTo(10, 0);
+            // 先端
+            ctx.lineTo(5, -3);
+            ctx.moveTo(10, 0);
+            ctx.lineTo(5, 3);
+            // 羽根
+            ctx.moveTo(-10, 0);
+            ctx.lineTo(-15, -3);
+            ctx.moveTo(-10, 0);
+            ctx.lineTo(-15, 3);
 
-        ctx.lineWidth = 2;
-        ctx.stroke();
+            if (this.type === 'NORMAL') ctx.strokeStyle = 'white';
+            else if (this.type === 'FIRE') ctx.strokeStyle = 'red';
+            else if (this.type === 'BOMB') ctx.strokeStyle = 'black';
+            else if (this.type === 'TRIPLE') ctx.strokeStyle = 'cyan';
+
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
         ctx.restore();
     }
 }
@@ -416,6 +452,7 @@ class Player {
         this.width = 20;
         this.height = 30; // 判定用サイズ
         this.hp = 100;
+        this.prevHp = 100; // 前ターンのHP (被弾判定用)
         this.angle = isCPU ? Math.floor(Math.random() * 180) : 45;
         this.power = isCPU ? 30 + Math.floor(Math.random() * 50) : 50;
         this.moveSpeed = 2;
@@ -427,7 +464,9 @@ class Player {
         this.inventory = {
             'FIRE': 0,
             'BOMB': 0,
-            'HEALTH': 0
+            'HEALTH': 0,
+            'TRIPLE': 0,
+            'LASER': 0
         };
         this.currentWeapon = 'NORMAL';
     }
@@ -449,11 +488,39 @@ class Player {
         }
     }
 
-    draw(ctx) {
+    draw(ctx, isActive) {
         if (this.hp <= 0) return;
 
         const drawX = this.x;
         const drawY = this.y;
+
+        // Active Indicator (Triangle)
+        if (isActive) {
+            ctx.fillStyle = 'yellow';
+            ctx.beginPath();
+            ctx.moveTo(drawX, drawY - 70);
+            ctx.lineTo(drawX - 10, drawY - 85);
+            ctx.lineTo(drawX + 10, drawY - 85);
+            ctx.fill();
+
+            // Power Bar (Visual)
+            ctx.fillStyle = 'white';
+            ctx.fillRect(drawX - 25, drawY - 65, 50, 6);
+            ctx.fillStyle = `hsl(${this.power}, 100%, 50%)`; // Color based on power
+            ctx.fillRect(drawX - 25, drawY - 65, 50 * (this.power / 100), 6);
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(drawX - 25, drawY - 65, 50, 6);
+
+            // Control Hints
+            if (!this.isCPU) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('← Angle →', drawX, drawY + 15);
+                ctx.fillText('↑ Power ↓', drawX, drawY + 25);
+            }
+        }
 
         // Archer Visual (Stick figure)
         ctx.strokeStyle = this.color;
@@ -814,7 +881,7 @@ function updateGame() {
             if (isKeyDown('ArrowDown')) p.power = Math.max(0, p.power - 1);
 
             if (isKeyPressed('KeyW') || isKeyPressed('KeyS')) {
-                const types = ['NORMAL', 'FIRE', 'BOMB', 'HEALTH'];
+                const types = ['NORMAL', 'FIRE', 'BOMB', 'TRIPLE', 'LASER', 'HEALTH'];
                 let idx = types.indexOf(p.currentWeapon);
                 if (isKeyPressed('KeyW')) idx = (idx + 1) % types.length;
                 if (isKeyPressed('KeyS')) idx = (idx - 1 + types.length) % types.length;
@@ -851,13 +918,79 @@ function useHealthItem(player) {
     }
 }
 
+function isLocationSafe(x, y, width, height) {
+    // 炎判定
+    return !fires.some(f =>
+        Math.abs(f.x - x) < width + 10 &&
+        Math.abs(f.y - (y - height / 2)) < height
+    );
+}
+
 function executeCpuTurn(cpu) {
-    // 0. 移動フェーズ (少しだけ移動する)
-    const moveDir = Math.random() > 0.5 ? 1 : -1;
-    const moveAmount = Math.floor(Math.random() * 5);
+    // 0. 回避行動 & 移動フェーズ
+    let moveDir = Math.random() > 0.5 ? 1 : -1;
+    let moveAmount = 0;
+
+    // 現在地の安全性チェック
+    const currentY = terrain.getHeight(cpu.x);
+    const isCurrentSafe = isLocationSafe(cpu.x, currentY, cpu.width, cpu.height);
+
+    if (!isCurrentSafe) {
+        // 現在地が炎上中 -> 安全圏へ脱出
+        moveAmount = 20 + Math.floor(Math.random() * 20);
+    } else if (cpu.hp < cpu.prevHp) {
+        // 被弾後 -> 回避行動
+        moveAmount = 15 + Math.floor(Math.random() * 30);
+    } else {
+        // 通常 -> 微調整
+        moveAmount = Math.floor(Math.random() * 5);
+    }
+
+    // 移動先が安全かチェック
+    const totalDist = moveAmount * cpu.moveSpeed;
+
+    // 左右どちらか、あるいは両方を検討
+    const dirs = [1, -1];
+    if (Math.random() > 0.5) dirs.reverse(); // ランダム順
+
+    let bestDir = 0;
+
+    for (let d of dirs) {
+        let tx = cpu.x + d * totalDist;
+        if (CONFIG.screenLoop) {
+            if (tx < 0) tx += CONFIG.canvasWidth;
+            if (tx >= CONFIG.canvasWidth) tx -= CONFIG.canvasWidth;
+        } else {
+            if (tx < 0) tx = 0;
+            if (tx >= CONFIG.canvasWidth) tx = CONFIG.canvasWidth - 1;
+        }
+        const ty = terrain.getHeight(tx);
+
+        if (isLocationSafe(tx, ty, cpu.width, cpu.height)) {
+            bestDir = d;
+            break; // 安全な方向発見
+        }
+    }
+
+    if (bestDir !== 0) {
+        moveDir = bestDir;
+    } else {
+        // 安全な移動先がない場合
+        if (isCurrentSafe) {
+            // 今安全なら動かない方がマシ
+            moveAmount = 0;
+        }
+    }
+
+    // 移動実行
     for (let i = 0; i < moveAmount; i++) {
         cpu.move(moveDir, terrain);
+        // 燃料尽きたら終了
+        if (cpu.fuel <= 0) break;
     }
+
+    // HP状態更新
+    cpu.prevHp = cpu.hp;
 
     // HP回復優先
     if (cpu.hp < 50 && cpu.inventory['HEALTH'] > 0) {
@@ -882,6 +1015,7 @@ function executeCpuTurn(cpu) {
 
     // 2. 武器選択
     if (cpu.inventory['BOMB'] > 0) cpu.currentWeapon = 'BOMB';
+    else if (cpu.inventory['TRIPLE'] > 0) cpu.currentWeapon = 'TRIPLE';
     else if (cpu.inventory['FIRE'] > 0) cpu.currentWeapon = 'FIRE';
     else cpu.currentWeapon = 'NORMAL';
 
@@ -919,13 +1053,30 @@ function fireProjectile(player) {
 
     const rad = (player.angle * Math.PI) / 180;
     const speed = player.power * 0.3;
-    const vx = Math.cos(-rad) * speed;
-    const vy = Math.sin(-rad) * speed;
+    let vx = Math.cos(-rad) * speed;
+    let vy = Math.sin(-rad) * speed;
+
+    // Laser is faster
+    if (player.currentWeapon === 'LASER') {
+        const laserSpeed = speed * 3.0; // Much faster
+        vx = Math.cos(-rad) * laserSpeed;
+        vy = Math.sin(-rad) * laserSpeed;
+    }
 
     const x = player.x + Math.cos(-rad) * 20;
     const y = (player.y - 35) + Math.sin(-rad) * 20; // 発射位置調整
 
-    projectiles.push(new Projectile(x, y, vx, vy, player.id, player.currentWeapon));
+    if (player.currentWeapon === 'TRIPLE') {
+        const angles = [-5, 0, 5];
+        angles.forEach(offset => {
+            const aRad = ((player.angle + offset) * Math.PI) / 180;
+            const avx = Math.cos(-aRad) * speed;
+            const avy = Math.sin(-aRad) * speed;
+            projectiles.push(new Projectile(x, y, avx, avy, player.id, 'TRIPLE'));
+        });
+    } else {
+        projectiles.push(new Projectile(x, y, vx, vy, player.id, player.currentWeapon));
+    }
 
     // マズルフラッシュ
     particles.push(new Explosion(x, y, 10));
@@ -947,7 +1098,7 @@ function drawGame() {
     }
 
     if (terrain) terrain.draw(ctx);
-    players.forEach(player => player.draw(ctx));
+    players.forEach((player, idx) => player.draw(ctx, idx === currentPlayerIndex));
     fires.forEach(f => f.draw(ctx));
     projectiles.forEach(p => p.draw(ctx));
     particles.forEach(p => p.draw(ctx));
@@ -1040,6 +1191,12 @@ function cpuShopLogic(cpu) {
     if (cpu.hp < 50 && cpu.money >= ITEMS.HEALTH.price) {
         buyItem(cpu, 'HEALTH');
     }
+    if (cpu.money >= ITEMS.LASER.price) {
+        buyItem(cpu, 'LASER');
+    }
+    if (cpu.money >= ITEMS.TRIPLE.price) {
+        buyItem(cpu, 'TRIPLE');
+    }
     if (cpu.money >= ITEMS.BOMB.price) {
         buyItem(cpu, 'BOMB');
     }
@@ -1063,6 +1220,8 @@ function updateShop() {
         if (isKeyPressed('Digit1') || isKeyPressed('KeyQ')) buyItem(targetPlayer, 'FIRE');
         if (isKeyPressed('Digit2') || isKeyPressed('KeyW')) buyItem(targetPlayer, 'BOMB');
         if (isKeyPressed('Digit3') || isKeyPressed('KeyE')) buyItem(targetPlayer, 'HEALTH');
+        if (isKeyPressed('Digit4') || isKeyPressed('KeyR')) buyItem(targetPlayer, 'TRIPLE');
+        if (isKeyPressed('Digit5') || isKeyPressed('KeyT')) buyItem(targetPlayer, 'LASER');
     }
 
     if (isKeyPressed('Space')) {
@@ -1089,6 +1248,7 @@ function startNextRound() {
 
     players.forEach((p, index) => {
         p.hp = 100;
+        p.prevHp = 100;
         p.x = (CONFIG.canvasWidth / (players.length + 1)) * (index + 1);
         p.y = 0;
         p.angle = index === 1 ? 135 : 45;
@@ -1096,6 +1256,8 @@ function startNextRound() {
         // 燃料もリセットでいいか？蓄積はターン毎。次ラウンドはリセットでOK
         p.fuel = 10;
     });
+
+    fires = []; // ステージ変更時に炎を消去
 
     currentPlayerIndex = 0;
     isTurnActive = true;
@@ -1129,15 +1291,17 @@ function drawShop() {
         ctx.fillStyle = 'white';
         ctx.font = '20px monospace';
         ctx.fillText(`Money: $${p.money} | HP: ${p.hp}`, canvas.width / 2, 150);
-        ctx.fillText(`Inventory: Fire: ${p.inventory.FIRE} | Bomb: ${p.inventory.BOMB} | Health: ${p.inventory.HEALTH}`, canvas.width / 2, 180);
+        // Inventory line removed, displayed in menu
 
         // メニュー
         if (!p.isCPU) {
             const startY = 250;
             ctx.textAlign = 'left';
-            ctx.fillText(`[1] Buy Fire Arrow  ($150)`, 250, startY);
-            ctx.fillText(`[2] Buy Bomb Arrow  ($300)`, 250, startY + 40);
-            ctx.fillText(`[3] Buy Health Pack ($200)`, 250, startY + 80);
+            ctx.fillText(`[1] Buy Fire Arrow   ($150) [Owned: ${p.inventory.FIRE}]`, 200, startY);
+            ctx.fillText(`[2] Buy Bomb Arrow   ($300) [Owned: ${p.inventory.BOMB}]`, 200, startY + 40);
+            ctx.fillText(`[3] Buy Health Pack  ($200) [Owned: ${p.inventory.HEALTH}]`, 200, startY + 80);
+            ctx.fillText(`[4] Buy Triple Arrow ($250) [Owned: ${p.inventory.TRIPLE}]`, 200, startY + 120);
+            ctx.fillText(`[5] Buy Laser Arrow  ($400) [Owned: ${p.inventory.LASER}]`, 200, startY + 160);
         } else {
             ctx.fillStyle = 'gray';
             ctx.fillText("(CPU Buys Automatically)", canvas.width / 2, 250);
