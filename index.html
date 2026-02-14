@@ -1,15 +1,33 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Bow Man - 弓男</title>
     <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
     <div id="game-container">
         <canvas id="gameCanvas"></canvas>
+        <div id="touch-area-hint">Drag screen to Aim/Power</div>
+    </div>
+
+    <!-- Mobile Controls Area (Separate) -->
+    <div id="mobile-controls">
+        <div id="move-controls">
+            <button id="btn-left" class="control-btn" ontouchstart="mobileInput('Left', true)"
+                ontouchend="mobileInput('Left', false)">←</button>
+            <button id="btn-right" class="control-btn" ontouchstart="mobileInput('Right', true)"
+                ontouchend="mobileInput('Right', false)">→</button>
+        </div>
+        <div id="action-controls">
+            <button id="btn-weapon" class="control-btn" onclick="mobileInput('Weapon')">WPN</button>
+            <button id="btn-fire" class="control-btn fire" onclick="mobileInput('Fire')">FIRE</button>
+        </div>
     </div>
     <script src="game.js"></script>
 </body>
+
 </html>

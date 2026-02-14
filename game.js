@@ -648,6 +648,92 @@ function init() {
         input.keys[e.code] = false;
     });
 
+    // Mobile / Touch Controls
+    let lastTouch = null;
+    window.addEventListener('touchstart', (e) => {
+        if (e.target.tagName !== 'BUTTON') {
+            lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+    }, { passive: false });
+
+    window.addEventListener('touchmove', (e) => {
+        if (lastTouch && currentState === GameState.GAME_LOOP && isTurnActive) {
+            e.preventDefault(); // Prevent scrolling
+            const touch = e.touches[0];
+            const dx = touch.clientX - lastTouch.x;
+            const dy = touch.clientY - lastTouch.y;
+
+            const p = players[currentPlayerIndex];
+            if (p && !p.isCPU && p.hp > 0) {
+                // Adjust Angle (Horizontal drag) - inverted for "pull" feel? Or direct?
+                // Let's go direct: Right drag -> Angle decreases (aim right?), Left drag -> Angle increases (aim left)
+                // Actually BowMan angle: 0 is Right, 180 is Left.
+                // So dragging Right (positive dx) should decrease angle (towards 0).
+                p.angle -= dx * 0.5;
+                p.angle = Math.max(0, Math.min(180, p.angle));
+
+                // Adjust Power (Vertical drag)
+                // Drag Down (positive dy) -> Decrease power? Or Drag Up -> Increase?
+                // Let's say Drag Up (negative dy) increases power.
+                p.power -= dy * 0.5;
+                p.power = Math.max(0, Math.min(100, p.power));
+            }
+            lastTouch = { x: touch.clientX, y: touch.clientY };
+        }
+    }, { passive: false });
+
+    window.addEventListener('touchend', () => {
+        lastTouch = null;
+    });
+
+    // Expose for HTML buttons
+    window.mobileInput = function (action, state) {
+        if (currentState !== GameState.GAME_LOOP) {
+            // Title Screen Mapping
+            if (action === 'Fire' && currentState === GameState.TITLE) {
+                // Start Game
+                input.keys['Space'] = true; // Trigger start
+                setTimeout(() => input.keys['Space'] = false, 100);
+            }
+            if (action === 'Fire' && (currentState === GameState.RESULT || currentState === GameState.SHOP)) {
+                input.keys['Space'] = true;
+                setTimeout(() => input.keys['Space'] = false, 100);
+            }
+            // Title Settings (using Move buttons)
+            if (currentState === GameState.TITLE) {
+                if (action === 'Left') { input.keys['ArrowLeft'] = state; }
+                if (action === 'Right') { input.keys['ArrowRight'] = state; }
+            }
+            // Shop Navigation
+            if (currentState === GameState.SHOP) {
+                if (action === 'Left') { input.keys['ArrowLeft'] = state; }
+                if (action === 'Right') { input.keys['ArrowRight'] = state; }
+                // Weapon button to buy? Maybe just use numbers on screen or map Weapon button to Buy 1?
+                // For now, Shop on mobile might be tricky without numbers.
+                // Let's verify shop logic later.
+            }
+            return;
+        }
+
+        // Game Loop Mapping
+        if (action === 'Left') input.keys['KeyA'] = state;
+        if (action === 'Right') input.keys['KeyD'] = state;
+
+        if (action === 'Fire') {
+            // Toggle Space
+            // For buttons, we might want 'onclick' (pulse) or press/release.
+            // The HTML uses onclick for Fire/Weapon, start/end for Move.
+            // If onclick, pulse it.
+            input.keys['Space'] = true;
+            setTimeout(() => input.keys['Space'] = false, 100);
+        }
+
+        if (action === 'Weapon') {
+            input.keys['KeyW'] = true;
+            setTimeout(() => input.keys['KeyW'] = false, 100);
+        }
+    };
+
     // タイトルへ
     currentState = GameState.TITLE;
 
