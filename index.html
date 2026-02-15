@@ -5,18 +5,36 @@
     <meta charset="UTF-8">
     <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Bow Man - PWA</title>
-    <link rel="stylesheet" href="style.css">
+    <title>BowMan</title>
+    <!-- Social Card Meta Tags -->
+    <meta property="og:title" content="BowMan">
+    <meta property="og:description"
+        content="A turn-based archery game where you battle against CPU or friends. Adjust angle and power to hit your target!">
+    <meta property="og:image" content="bow_man_title.jpg">
+    <meta property="og:url" content="https://example.com/bowman">
+    <meta name="twitter:card" content="summary_large_image">
 
-    <!-- PWA Settings -->
+    <!-- PWA Support -->
     <link rel="manifest" href="manifest.json">
-    <link rel="icon" type="image/png" href="icon-512.png">
-    <meta name="theme-color" content="#000000">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="icon" type="image/png" href="bow_man_icon_square.png">
+    <meta name="theme-color" content="#333333">
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
+    <!-- PWA Install Banner -->
+    <div id="pwa-install-banner" class="hidden">
+        <div class="pwa-content">
+            <img src="bow_man_icon_square.png" alt="Icon" class="pwa-icon">
+            <div class="pwa-text">
+                <span class="pwa-title">Install BowMan</span>
+                <span class="pwa-desc">Play offline & fullscreen!</span>
+            </div>
+            <button id="pwa-install-btn">Install</button>
+            <button id="pwa-close-btn">×</button>
+        </div>
+    </div>
+
     <div id="game-container">
         <canvas id="gameCanvas"></canvas>
     </div>
@@ -53,7 +71,9 @@
             <button class="shop-btn" onclick="buyItem(players[shopCursor], 'MEGA_BOMB')">7:Mega</button>
         </div>
     </div>
+    <!-- Game Logic -->
     <script src="game.js"></script>
+    <script src="pwa.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

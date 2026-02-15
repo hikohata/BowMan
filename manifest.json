@@ -1,22 +1,17 @@
 {
-    "name": "Bow Man",
+    "name": "BowMan",
     "short_name": "BowMan",
-    "description": "A turn-based archery battle game.",
     "start_url": "./index.html",
     "display": "standalone",
-    "background_color": "#000000",
-    "theme_color": "#000000",
+    "background_color": "#333333",
+    "theme_color": "#333333",
     "orientation": "landscape",
     "icons": [
         {
-            "src": "icon-512.png",
+            "src": "bow_man_icon_square.png",
             "sizes": "512x512",
-            "type": "image/png"
-        },
-        {
-            "src": "icon-192.png",
-            "sizes": "192x192",
-            "type": "image/png"
+            "type": "image/png",
+            "purpose": "any maskable"
         }
     ]
 }

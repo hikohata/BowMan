@@ -5,23 +5,37 @@ const ASSETS = [
     './style.css',
     './game.js',
     './manifest.json',
-    './icon-512.png',
+    './bow_man_icon_square.png',
+    './bow_man_title.jpg',
     './assets/archer.svg',
     './assets/bow.svg',
-    './assets/mountains.svg',
-    './bow_man_title.jpg'
+    './assets/mountains.svg'
 ];
 
-self.addEventListener('install', (event) => {
-    event.waitUntil(
-        caches.open(CACHE_NAME)
-            .then((cache) => cache.addAll(ASSETS))
+self.addEventListener('install', (e) => {
+    e.waitUntil(
+        caches.open(CACHE_NAME).then((cache) => {
+            return cache.addAll(ASSETS);
+        })
     );
 });
 
-self.addEventListener('fetch', (event) => {
-    event.respondWith(
-        caches.match(event.request)
-            .then((response) => response || fetch(event.request))
+self.addEventListener('fetch', (e) => {
+    e.respondWith(
+        caches.match(e.request).then((response) => {
+            return response || fetch(e.request);
+        })
+    );
+});
+
+self.addEventListener('activate', (e) => {
+    e.waitUntil(
+        caches.keys().then((keyList) => {
+            return Promise.all(keyList.map((key) => {
+                if (key !== CACHE_NAME) {
+                    return caches.delete(key);
+                }
+            }));
+        })
     );
 });
