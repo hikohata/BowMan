@@ -55,6 +55,8 @@ let wind = 0;
 let isTurnActive = true;
 let bgGradient = null;
 let cpuThinking = false; // CPU思考中フラグ
+let hasActionTaken = false; // Add action taken flag
+let cpuTurnTimeout = null; // Add timeout reference
 
 // タイトル画面用設定
 let settingHumans = 1;
@@ -255,9 +257,13 @@ class Projectile {
         this.radius = 3;
         this.isActive = true;
         this.rotation = Math.atan2(vy, vx);
+        this.invincibility = 10; // Frames to ignore shooter collision (self-hit)
     }
 
     update() {
+        if (!this.isActive) return;
+
+        if (this.invincibility > 0) this.invincibility--;
         if (this.type !== 'LASER') {
             this.vy += CONFIG.gravity;
             this.vx += wind; // 風の影響
@@ -308,6 +314,9 @@ class Projectile {
                 Math.abs(this.x - p.x) < p.width / 2 + this.radius &&
                 Math.abs(this.y - (p.y - p.height / 2)) < p.height / 2 + this.radius) {
 
+                // Ignore shooter if recently fired
+                if (p.id === this.ownerId && this.invincibility > 0) continue;
+
                 this.explode(this.x, this.y);
                 break;
             }
@@ -356,8 +365,6 @@ class Projectile {
                 }
             }
         });
-
-        setTimeout(() => nextTurn(), 1000);
     }
 
     draw(ctx) {
@@ -448,7 +455,8 @@ class Player {
         this.id = id;
         this.color = color;
         this.x = x;
-        this.y = 0;
+        // Spawn on ground immediately
+        this.y = terrain ? terrain.getHeight(x) : 0;
         this.width = 20;
         this.height = 30; // 判定用サイズ
         this.hp = 100;
@@ -771,6 +779,12 @@ function initGame() {
     currentPlayerIndex = 0;
     isTurnActive = true;
     cpuThinking = false;
+    hasActionTaken = false;
+    if (cpuTurnTimeout) clearTimeout(cpuTurnTimeout);
+    cpuTurnTimeout = null;
+
+    console.log("--- Game Init ---");
+    players.forEach(p => console.log(`Player ${p.id}: HP=${p.hp}, X=${p.x}, Y=${p.y}, CPU=${p.isCPU}`));
 }
 
 function randomizeBackground() {
@@ -836,6 +850,19 @@ function isKeyDown(code) {
 // ---------------------------------------------------------
 
 function nextTurn() {
+    console.log(`nextTurn START. Current: ${currentPlayerIndex}, HP=${players[currentPlayerIndex]?.hp}. Active=${isTurnActive}`);
+
+    // Clear any pending CPU action
+    if (cpuTurnTimeout) {
+        clearTimeout(cpuTurnTimeout);
+        cpuTurnTimeout = null;
+    }
+
+    // If nextTurn is somehow called while turn is already active (rare race condition?), ignoring might be safer,
+    // but usually we want to force next turn.
+    // However, resetting flags is key.
+
+
     // ターン終了時の炎ダメージ判定
     const currentP = players[currentPlayerIndex];
     if (currentP.hp > 0) {
@@ -865,13 +892,17 @@ function nextTurn() {
 
     do {
         currentPlayerIndex = (currentPlayerIndex + 1) % players.length;
+        console.log(`  Checking Index ${currentPlayerIndex}: HP=${players[currentPlayerIndex].hp}, CPU=${players[currentPlayerIndex].isCPU}`);
     } while (players[currentPlayerIndex].hp <= 0);
+
+    console.log(`nextTurn END. Next Player: ${currentPlayerIndex}`);
 
     // 燃料蓄積 (Max 100)
     players[currentPlayerIndex].fuel = Math.min(100, players[currentPlayerIndex].fuel + 10);
 
     isTurnActive = true;
     cpuThinking = false;
+    hasActionTaken = false;
 }
 
 // ---------------------------------------------------------
@@ -938,6 +969,7 @@ function updateGame() {
     particles.forEach(p => p.update());
     particles = particles.filter(p => p.isActive);
 
+    players.forEach(player => player.update(terrain));
     fires.forEach(f => f.update(terrain));
     // fires = fires.filter(f => f.life > 0); // 永続化のため削除
 
@@ -951,9 +983,15 @@ function updateGame() {
             if (!cpuThinking) {
                 cpuThinking = true;
                 // 少し移動する
-                setTimeout(() => {
-                    executeCpuTurn(p);
-                    // 発射後はfireProjectileでisTurnActive=falseになる
+                if (cpuTurnTimeout) clearTimeout(cpuTurnTimeout);
+                cpuTurnTimeout = setTimeout(() => {
+                    // Check if It is still my turn!
+                    if (players[currentPlayerIndex] === p && isTurnActive) {
+                        executeCpuTurn(p);
+                        // 発射後はfireProjectileでisTurnActive=falseになる
+                    } else {
+                        console.log("CPU Turn Skipped: Timeout fired but turn changed or inactive.");
+                    }
                     cpuThinking = false;
                 }, 1000 + Math.random() * 1000);
             }
@@ -980,18 +1018,54 @@ function updateGame() {
                     if (p.inventory['HEALTH'] > 0) {
                         useHealthItem(p);
                         isTurnActive = false;
-                        setTimeout(() => nextTurn(), 1000);
+                        hasActionTaken = true; // Action confirmed
+                        setTimeout(() => {
+                            nextTurn();
+                        }, 1000);
                     }
                 } else {
                     Sound.shoot(); // 発射音
                     fireProjectile(p);
                     isTurnActive = false;
+                    hasActionTaken = true; // Action confirmed
                 }
             }
         }
     }
 
-    players.forEach(player => player.update(terrain));
+    // Check for falling death (Player fell into pit)
+    if (p.hp <= 0 && isTurnActive) {
+        console.log(`Player ${p.id} Died (Falling/HP0). Y=${p.y}`);
+        isTurnActive = false;
+        hasActionTaken = true; // Treat death as action
+        setTimeout(() => {
+            nextTurn();
+        }, 1000);
+    }
+
+    // Turn transition when projectiles are gone
+    if (hasActionTaken && !isTurnActive && projectiles.length === 0 && currentState === GameState.GAME_LOOP) {
+        // Debounce or wait a moment?
+        // Check if we are already waiting for nextTurn? 
+        // We need a flag to prevent multiple nextTurn calls if we rely on update loop
+        // But simply checking projectiles.length === 0 is usually safe if we set hasActionTaken=false in nextTurn immediately.
+        // Let's add a small valid wait.
+
+        // However, we need to avoid calling it repeatedly every frame while waiting for the timeout.
+        // Simplified: Just call nextTurn if not already processing. 
+        // But we don't have 'isProcessingTurnEnd' anymore (user reverted).
+        // Let's rely on a property or reusable flag.
+        // Actually, let's add `isProcessingTurnEnd` back locally or logic.
+
+        // Optimization: Create a one-off transition
+        if (!p.isProcessingTurnEnd) {
+            p.isProcessingTurnEnd = true;
+            setTimeout(() => {
+                p.isProcessingTurnEnd = false; // Reset for next time (though p might change)
+                nextTurn();
+            }, 500);
+        }
+    }
 }
 
 function useHealthItem(player) {
@@ -1013,6 +1087,7 @@ function isLocationSafe(x, y, width, height) {
 }
 
 function executeCpuTurn(cpu) {
+    console.log("executeCpuTurn start for:", cpu.id);
     // 0. 回避行動 & 移動フェーズ
     let moveDir = Math.random() > 0.5 ? 1 : -1;
     let moveAmount = 0;
@@ -1079,11 +1154,12 @@ function executeCpuTurn(cpu) {
     cpu.prevHp = cpu.hp;
 
     // HP回復優先
+    // HP回復優先
     if (cpu.hp < 50 && cpu.inventory['HEALTH'] > 0) {
         cpu.currentWeapon = 'HEALTH';
         useHealthItem(cpu);
         isTurnActive = false;
-        setTimeout(() => nextTurn(), 1000); // ターンエンド処理
+        hasActionTaken = true; // Use common transition logic
         return;
     }
 
@@ -1093,6 +1169,7 @@ function executeCpuTurn(cpu) {
         Sound.shoot();
         fireProjectile(cpu);
         isTurnActive = false;
+        hasActionTaken = true;
         return;
     }
 
@@ -1126,6 +1203,7 @@ function executeCpuTurn(cpu) {
     Sound.shoot();
     fireProjectile(cpu);
     isTurnActive = false;
+    hasActionTaken = true;
 }
 
 function fireProjectile(player) {
@@ -1158,7 +1236,10 @@ function fireProjectile(player) {
             const aRad = ((player.angle + offset) * Math.PI) / 180;
             const avx = Math.cos(-aRad) * speed;
             const avy = Math.sin(-aRad) * speed;
-            projectiles.push(new Projectile(x, y, avx, avy, player.id, 'TRIPLE'));
+            // Mark as 'NORMAL' to ensure standard behavior, avoiding 'TRIPLE' logic in update/draw if it causes issues.
+            // Or keep 'TRIPLE' if draw logic needs it, but ensure update logic handles it safely.
+            // Previous fix used NORMAL. Let's use NORMAL to be safe.
+            projectiles.push(new Projectile(x, y, avx, avy, player.id, 'NORMAL'));
         });
     } else {
         projectiles.push(new Projectile(x, y, vx, vy, player.id, player.currentWeapon));
