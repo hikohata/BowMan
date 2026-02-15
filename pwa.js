@@ -43,6 +43,20 @@ document.addEventListener('DOMContentLoaded', () => {
         banner.classList.add('visible');
     });
 
+    // Firefox Android Specific Logic (No beforeinstallprompt support)
+    const isFirefoxAndroid = /Android/i.test(navigator.userAgent) && /Firefox/i.test(navigator.userAgent);
+    if (isFirefoxAndroid) {
+        setTimeout(() => {
+            banner.classList.remove('hidden');
+            banner.classList.add('visible');
+            
+            // Adjust UI for manual install
+            installBtn.style.display = 'none';
+            const desc = banner.querySelector('.pwa-desc');
+            if (desc) desc.innerText = "Menu > Install";
+        }, 3000);
+    }
+
     installBtn.addEventListener('click', async () => {
         if (deferredPrompt) {
             // Show the install prompt

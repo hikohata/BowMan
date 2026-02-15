@@ -983,50 +983,38 @@ function init() {
     });
 
     // Expose for HTML buttons
-    window.mobileInput = function (action, state) {
-        if (currentState !== GameState.GAME_LOOP) {
-            // Title Screen Mapping
-            if (action === 'Fire' && currentState === GameState.TITLE) {
-                // Start Game
-                input.keys['Space'] = true; // Trigger start
-                setTimeout(() => input.keys['Space'] = false, 100);
-            }
-            if (action === 'Fire' && (currentState === GameState.RESULT || currentState === GameState.SHOP)) {
-                input.keys['Space'] = true;
-                setTimeout(() => input.keys['Space'] = false, 100);
-            }
-            // Title Settings (using Move buttons)
-            if (currentState === GameState.TITLE) {
-                if (action === 'Left') { input.keys['ArrowLeft'] = state; }
-                if (action === 'Right') { input.keys['ArrowRight'] = state; }
-            }
-            // Shop Navigation
-            if (currentState === GameState.SHOP) {
-                if (action === 'Left') { input.keys['ArrowLeft'] = state; }
-                if (action === 'Right') { input.keys['ArrowRight'] = state; }
-                // Weapon button to buy? Maybe just use numbers on screen or map Weapon button to Buy 1?
-                // For now, Shop on mobile might be tricky without numbers.
-                // Let's verify shop logic later.
-            }
-            return;
-        }
-
-        // Game Loop Mapping
-        if (action === 'Left') input.keys['KeyA'] = state;
-        if (action === 'Right') input.keys['KeyD'] = state;
+    // Expose for HTML buttons (New Logic)
+    window.mobileInput = function (action, isDown) {
+        if (action === 'Left') input.keys['ArrowLeft'] = isDown;
+        if (action === 'Right') input.keys['ArrowRight'] = isDown;
+        if (action === 'Up') input.keys['ArrowUp'] = isDown;
+        if (action === 'Down') input.keys['ArrowDown'] = isDown;
 
         if (action === 'Fire') {
-            // Toggle Space
-            // For buttons, we might want 'onclick' (pulse) or press/release.
-            // The HTML uses onclick for Fire/Weapon, start/end for Move.
-            // If onclick, pulse it.
-            input.keys['Space'] = true;
-            setTimeout(() => input.keys['Space'] = false, 100);
+            // Treat as click for Fire button (isDown undefined or true)
+            if (isDown !== false) {
+                if (currentState === GameState.TITLE) {
+                    currentState = GameState.GAME_LOOP;
+                    initGame();
+                } else if (currentState === GameState.SHOP) {
+                    startNextRound();
+                } else if (currentState === GameState.RESULT) {
+                    currentState = GameState.SHOP;
+                } else {
+                    input.keys['Space'] = true;
+                    setTimeout(() => input.keys['Space'] = false, 100);
+                }
+            }
         }
 
-        if (action === 'Weapon') {
-            input.keys['KeyW'] = true;
-            setTimeout(() => input.keys['KeyW'] = false, 100);
+        if (action === 'Weapon' && isDown !== false) {
+            const types = ['NORMAL', 'FIRE', 'BOMB', 'TRIPLE', 'LASER', 'TRIPLE_FIRE', 'MEGA_BOMB', 'HEALTH'];
+            const p = players[currentPlayerIndex];
+            if (p && !p.isCPU) {
+                let idx = types.indexOf(p.currentWeapon);
+                idx = (idx + 1) % types.length;
+                p.currentWeapon = types[idx];
+            }
         }
     };
 
@@ -1144,6 +1132,14 @@ function updateInput() {
     // Update Mobile Button Labels & Visibility based on State
     const fireBtn = document.getElementById('btn-fire');
     const shopControls = document.getElementById('shop-controls');
+
+    // Display CPU count on Title screen helper
+    const cpuDisplayMini = document.getElementById('cpu-display-mini');
+
+    if (cpuDisplayMini) {
+        // Removed as per request (redundant with title screen display)
+        cpuDisplayMini.style.display = 'none';
+    }
 
     if (fireBtn) {
         if (currentState === GameState.TITLE) {
@@ -1941,3 +1937,44 @@ function drawResult() {
 
 // ゲーム開始
 init();
+// ---------------------------------------------------------
+// Event Listeners for HTML UI
+// ---------------------------------------------------------
+
+// Mobile Touch Controls (Prevent Default behavior where necessary)
+document.addEventListener('touchstart', function (e) {
+    if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') {
+        // e.preventDefault(); // Might interfere with scrolling if not careful
+    }
+}, { passive: false });
+
+// CPU Count Controls (Title Screen)
+const btnCpuUp = document.getElementById('cpu-up');
+const btnCpuDown = document.getElementById('cpu-down');
+
+if (btnCpuUp) {
+    btnCpuUp.addEventListener('click', (e) => {
+        if (currentState === GameState.TITLE) {
+            settingCPUs = Math.min(10, settingCPUs + 1);
+            // Redraw immediately for feedback (optional, loop handles it)
+        }
+    });
+    // Add touchstart for faster response on mobile
+    btnCpuUp.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        btnCpuUp.click();
+    });
+}
+
+if (btnCpuDown) {
+    btnCpuDown.addEventListener('click', (e) => {
+        if (currentState === GameState.TITLE) {
+            settingCPUs = Math.max(0, settingCPUs - 1);
+        }
+    });
+
+    btnCpuDown.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        btnCpuDown.click();
+    });
+}
