@@ -27,11 +27,11 @@ body {
     /* 2. Constrain height to available space (approx 80vh) */
     max-height: 75vh;
 
-    /* 3. Constrain width to maintain aspect ratio 2:1 based on height */
-    /* width <= height * 2 */
-    max-width: 150vh;
+    /* 3. Constrain width to maintain aspect ratio 16:9 based on height */
+    max-width: 133vh;
+    /* 75vh * (16/9) */
 
-    aspect-ratio: 2/1;
+    aspect-ratio: 16/9;
 
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
     background: #000;
@@ -50,48 +50,18 @@ canvas {
     display: none;
     width: 100%;
     /* Fixed height area */
-    height: 25vh;
+    height: 35vh;
+    /* Increased for hint and shop rows */
     background: #333;
-    justify-content: space-between;
+    flex-direction: column;
+    /* Stack hint, controls, shop */
+    justify-content: center;
     align-items: center;
-    padding: 0 40px;
+    padding: 10px;
     box-sizing: border-box;
     border-top: 2px solid #555;
     z-index: 10;
     flex-shrink: 0;
-}
-
-.control-btn {
-    pointer-events: auto;
-    width: 60px;
-    height: 60px;
-    border-radius: 50%;
-    border: 2px solid white;
-    background: #444;
-    color: white;
-    font-size: 24px;
-    font-weight: bold;
-    margin: 0 10px;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: manipulation;
-    cursor: pointer;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.control-btn:active {
-    background: #666;
-    transform: scale(0.95);
-}
-
-.control-btn.fire {
-    width: 80px;
-    height: 80px;
-    background: #d32f2f;
-    font-size: 24px;
-    border-color: #ffcdd2;
 }
 
 #move-controls,
@@ -99,19 +69,46 @@ canvas {
     display: flex;
     align-items: center;
     gap: 10px;
+    margin-bottom: 5px;
+}
+
+/* Container for main controls row */
+div:has(> #move-controls) {
+    /* This selector might be tricky without a wrapper class. Let's just wrap them in HTML if needed, or rely on flex-direction: row for a wrapper */
+}
+
+/* Actually, let's wrap Move and Action in a row */
+.controls-row {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 600px;
+    margin-bottom: 5px;
+}
+
+.shop-btn {
+    width: 50px;
+    height: 40px;
+    background: #555;
+    color: white;
+    border: 1px solid #777;
+    border-radius: 5px;
+    font-size: 12px;
+    cursor: pointer;
+    margin: 2px;
+}
+
+.shop-btn:active {
+    background: #777;
 }
 
 #touch-area-hint {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: rgba(255, 255, 255, 0.5);
-    font-size: 14px;
-    pointer-events: none;
-    display: none;
-    text-shadow: 1px 1px 2px black;
-    white-space: nowrap;
+    display: block !important;
+    /* Force show in mobile-controls */
+    position: static;
+    /* Reset absolute */
+    transform: none;
+    margin-bottom: 5px;
 }
 
 /* Show controls on small screens (mobile) */
@@ -119,15 +116,6 @@ canvas {
 (hover: none) {
     #mobile-controls {
         display: flex;
-    }
-
-    #touch-area-hint {
-        display: block;
-    }
-
-    /* Adjust game container for controls */
-    #game-container {
-        /* No shrink needed if we sized correctly above */
     }
 }
 

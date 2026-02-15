@@ -1,16 +1,32 @@
-// キャンバスとコンテキストの取得
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
+
+window.onerror = function (msg, url, line, col, error) {
+    alert(`Error: ${msg}\nLine: ${line}:${col}\nURL: ${url}`);
+    return false;
+};
+
+console.log("Game Script Loaded");
 
 // 画像の読み込み (User fixed path to jpg)
 const titleImage = new Image();
 titleImage.src = 'bow_man_title.jpg';
 
+// Load SVG Assets
+const archerImage = new Image();
+archerImage.src = 'assets/archer.svg';
+
+const bowImage = new Image();
+bowImage.src = 'assets/bow.svg';
+
+const mountainsImage = new Image();
+mountainsImage.src = 'assets/mountains.svg';
+
 // ゲーム設定
 const CONFIG = {
-    canvasWidth: 800,
-    canvasHeight: 600,
-    gravity: 0.1, // 重力
+    canvasWidth: 960,
+    canvasHeight: 540,
+    gravity: 0.5, // 重力
     // Wind is now fixed per stage
     screenLoop: true, // 画面ループ有効
     initialPlayers: 1, // 初期人間プレイヤー数
@@ -32,7 +48,9 @@ const ITEMS = {
     'BOMB': { name: 'Bomb Arrow', price: 300, type: 'BOMB' },
     'HEALTH': { name: 'Health Pack', price: 200, type: 'HEALTH' },
     'TRIPLE': { name: 'Triple Arrow', price: 250, type: 'TRIPLE' },
-    'LASER': { name: 'Laser Arrow', price: 400, type: 'LASER' }
+    'LASER': { name: 'Laser Arrow', price: 400, type: 'LASER' },
+    'TRIPLE_FIRE': { name: 'Triple Fire', price: 450, type: 'TRIPLE_FIRE' },
+    'MEGA_BOMB': { name: 'Mega Bomb', price: 600, type: 'MEGA_BOMB' }
 };
 
 // 現在の状態
@@ -50,6 +68,7 @@ let players = [];
 let projectiles = [];
 let particles = [];
 let fires = []; // 炎オブジェクト
+let windParticles = []; // For wind effect
 let currentPlayerIndex = 0;
 let wind = 0;
 let isTurnActive = true;
@@ -170,7 +189,7 @@ class Terrain {
     }
 
     draw(ctx) {
-        ctx.fillStyle = '#228B22';
+        ctx.fillStyle = '#228B22'; // ForestGreen
         ctx.beginPath();
         ctx.moveTo(0, this.height);
         for (let x = 0; x < this.width; x++) {
@@ -179,6 +198,13 @@ class Terrain {
         ctx.lineTo(this.width, this.height);
         ctx.closePath();
         ctx.fill();
+
+        // Add lighter top edge highlights
+        ctx.strokeStyle = '#32CD32'; // LimeGreen
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // Darker bottom/outline
         ctx.strokeStyle = '#006400';
         ctx.lineWidth = 2;
         ctx.stroke();
@@ -336,6 +362,15 @@ class Projectile {
             explosionRadius = 80;
             damageMultiplier = 1.5;
             particles.push(new Explosion(x, y, 60));
+        } else if (this.type === 'MEGA_BOMB') {
+            explosionRadius = 120;
+            damageMultiplier = 2.5; // Massive damage
+            // Big explosion effect
+            particles.push(new Explosion(x, y, 100));
+            // Add some fire too?
+            for (let i = 0; i < 10; i++) {
+                fires.push(new Fire(x + (Math.random() * 60 - 30), y));
+            }
         } else if (this.type === 'FIRE') {
             explosionRadius = 15;
             for (let i = 0; i < 5; i++) {
@@ -449,8 +484,12 @@ class Projectile {
             else if (this.type === 'FIRE') ctx.strokeStyle = 'red';
             else if (this.type === 'BOMB') ctx.strokeStyle = 'black';
             else if (this.type === 'TRIPLE') ctx.strokeStyle = 'cyan';
+            else if (this.type === 'MEGA_BOMB') {
+                ctx.strokeStyle = '#800080'; // Purple
+                ctx.lineWidth = 4;
+            }
 
-            ctx.lineWidth = 2;
+            if (this.type !== 'MEGA_BOMB') ctx.lineWidth = 2;
             ctx.stroke();
         }
 
@@ -494,6 +533,47 @@ class Explosion {
 }
 
 /**
+ * Wind Effect Particle
+ */
+class WindParticle {
+    constructor(width, height) {
+        this.x = Math.random() * width;
+        this.y = Math.random() * (height - 200); // Sky loop
+        this.speed = 0;
+        this.length = 10 + Math.random() * 20;
+        this.life = 0;
+        this.maxLife = 50 + Math.random() * 50;
+    }
+
+    update(width, windStrength) {
+        this.speed = windStrength * 50; // Scale wind
+        this.x += this.speed;
+        this.life++;
+
+        // Reset if out of bounds or life over
+        if (this.x > width) this.x = 0;
+        if (this.x < 0) this.x = width;
+
+        if (this.life > this.maxLife) {
+            this.x = Math.random() * width;
+            this.y = Math.random() * (width / 2); // Random sky height
+            this.life = 0;
+        }
+    }
+
+    draw(ctx) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; // Faint white
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(this.x, this.y);
+        ctx.lineTo(this.x + this.length * (this.speed > 0 ? 1 : -1), this.y); // Trail behind? Or direction?
+        // Actually just draw line in direction of wind
+        ctx.lineTo(this.x + (this.speed * 2), this.y);
+        ctx.stroke();
+    }
+}
+
+/**
  * プレイヤークラス
  */
 class Player {
@@ -521,25 +601,68 @@ class Player {
             'BOMB': 0,
             'HEALTH': 0,
             'TRIPLE': 0,
-            'LASER': 0
+            'LASER': 0,
+            'TRIPLE_FIRE': 0,
+            'MEGA_BOMB': 0
         };
+        this.fallStartY = this.y; // For fall damage
         this.currentWeapon = 'NORMAL';
+        this.ignoreFallDamage = true; // Prevent damage on spawn
     }
 
     update(terrain) {
         const groundY = terrain.getHeight(this.x);
 
         if (this.y < groundY) {
-            this.y += 2;
-            if (this.y > groundY) this.y = groundY;
-            this.isStable = (this.y >= groundY);
+            // Already falling? Set start if just started
+            if (this.isStable) {
+                this.fallStartY = this.y;
+                this.isStable = false;
+            }
+            this.y += 3; // Slightly faster fall? 2 was slow. Let's try 3.
+            if (this.y > groundY) {
+                // Landed this frame
+                this.y = groundY;
+                const fallDistance = this.y - this.fallStartY;
+                if (fallDistance > 50) { // Threshold for damage
+                    // Initial spawn check
+                    if (this.ignoreFallDamage) {
+                        this.ignoreFallDamage = false;
+                    } else {
+                        const damage = Math.floor((fallDistance - 50) / 2); // 1 damage per 2 pixels over 50
+                        if (damage > 0) {
+                            this.takeDamage(damage);
+                            console.log(`Player ${this.id} fell ${Math.floor(fallDistance)}px. Took ${damage} damage.`);
+                            // Maybe play hit sound?
+                            if (this.hp > 0) Sound.hit(); // Simple hit sound
+                        }
+                    }
+                }
+                this.isStable = true;
+                this.fallStartY = this.y;
+                this.ignoreFallDamage = false; // Ensure flag is cleared on landing anywhere
+            }
         } else {
+            // On ground
             this.y = groundY;
             this.isStable = true;
+            this.fallStartY = this.y;
+            this.ignoreFallDamage = false;
         }
 
         if (this.y >= CONFIG.canvasHeight - 10) {
+            this.isDead = true;
             this.hp = 0;
+            if (this.isStable) Sound.hit(); // Hit sound on death fall?
+        }
+
+        // Fuel regen
+        if (isTurnActive && players[currentPlayerIndex] === this && this.fuel < 10) {
+            // Regen logic is handled inside move() or turn start?
+            // Actually fuel resets every turn, but maybe regen if not moving?
+            // Current logic: fuel = 10 at start of turn. 
+            // If we want regen, we need a timer or frame counter.
+            // Let's keep it simple: Fuel is per turn action points.
         }
     }
 
@@ -557,72 +680,170 @@ class Player {
             ctx.lineTo(drawX - 10, drawY - 85);
             ctx.lineTo(drawX + 10, drawY - 85);
             ctx.fill();
-
-            // Power Bar (Visual) - Moved below feet
-            const barY = drawY + 45;
-            ctx.fillStyle = 'white';
-            ctx.fillRect(drawX - 25, barY, 50, 6);
-            ctx.fillStyle = `hsl(${this.power}, 100%, 50%)`; // Color based on power
-            ctx.fillRect(drawX - 25, barY, 50 * (this.power / 100), 6);
-            ctx.strokeStyle = 'black';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(drawX - 25, barY, 50, 6);
-
-            // Control Hints
-            if (!this.isCPU) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-                ctx.font = '10px monospace';
-                ctx.textAlign = 'center';
-                ctx.fillText('← Angle →', drawX, drawY + 15);
-                ctx.fillText('↑ Power ↓', drawX, drawY + 25);
-            }
         }
 
-        // Archer Visual (Stick figure)
-        ctx.strokeStyle = this.color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        // Body
-        ctx.moveTo(drawX, drawY); // Feet
-        ctx.lineTo(drawX, drawY - 20); // Waist
-        ctx.lineTo(drawX, drawY - 35); // Neck
-        // Head
-        ctx.moveTo(drawX + 5, drawY - 40);
-        ctx.arc(drawX, drawY - 40, 5, 0, Math.PI * 2);
-        // Legs
-        ctx.moveTo(drawX, drawY - 20);
-        ctx.lineTo(drawX - 10, drawY);
-        ctx.moveTo(drawX, drawY - 20);
-        ctx.lineTo(drawX + 10, drawY);
-        ctx.stroke();
+        // Archer Visual (SVG)
+        // Adjust drawY for feet position if needed, but we already have drawY = this.y
+        // The previous code had `drawY = this.y - 2`.
+        // Let's just use `drawY - 2` in the translation.
 
-        // 弓の描画 (Curve)
+        if (archerImage.complete) {
+            // Draw Body
+            // Hitbox is width=20, height=30.
+            // Image is 40x80 (2:1).
+            // Let's scale it down to fit.
+            // Width 40 -> 20 (0.5x). Height 80 -> 40 (0.5x).
+            // Archer head is slightly above body top.
+
+            const isFacingLeft = (this.angle > 90 && this.angle <= 270);
+
+            ctx.save();
+            ctx.translate(drawX, drawY - 15); // Center of body (height 30/2)
+            if (isFacingLeft) ctx.scale(-1, 1);
+
+            // Apply Color Tint
+            // Simple way: Draw silhouette with color using 'source-atop' or use filter?
+            // Filter `drop-shadow` with color?
+            // Or `hue-rotate`? Input colors create specific hues.
+            // Hard to match exactly.
+            // Better: GlobalCompositeOperation 'source-in' on an offscreen canvas? Expensive every frame?
+            // Let's try a simple overlay with 'multiply' or just semi-transparent colored rect over it?
+
+            // Try 'source-atop' method:
+            // 1. Draw Image
+            // 2. Set globalCompositeOperation = 'source-atop'
+            // 3. Fill Rect with Color (with some alpha to see details?)
+            // But this requires a separate buffer or it will composite against EVERYTHING already drawn.
+            // So we can stick to just drawing the image for now, and maybe draw a colored indicator (e.g. headband/armband) mechanically?
+            // Or try filter: drop-shadow(0 0 0 color) only works if image is transparent. SVG is.
+            // Let's try drop-shadow trick to purely colorize it?
+            // `ctx.filter = "drop-shadow(0px 0px 0px ${this.color})";`
+            // Then draw image at offset, but that duplicates it.
+
+            // Let's just draw scale 0.5.
+            // Image 40x80 -> 20x40.
+            ctx.drawImage(archerImage, -10, -20, 20, 40);
+
+            // Add Color indicator (Headband?)
+            ctx.fillStyle = this.color;
+            ctx.fillRect(-6, -18, 12, 3); // Headband
+
+            ctx.restore();
+        } else {
+            // Fallback to Stick Figure
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(drawX, drawY - 20); // Body
+            ctx.lineTo(drawX, drawY);
+            ctx.moveTo(drawX, drawY - 20); // Legs
+            ctx.lineTo(drawX - 5, drawY + 10);
+            ctx.moveTo(drawX, drawY - 20);
+            ctx.lineTo(drawX + 5, drawY + 10);
+            ctx.moveTo(drawX, drawY - 15); // Arms
+            ctx.lineTo(drawX - 5, drawY - 5);
+            ctx.moveTo(drawX, drawY - 15);
+            ctx.lineTo(drawX + 5, drawY - 5);
+            // Head
+            ctx.moveTo(drawX + 3, drawY - 23);
+            ctx.arc(drawX, drawY - 23, 3, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        // --- NEW UI LAYOUT (Below Feet) ---
+        // Label (Left) + Bar (Right)
+
+        ctx.textAlign = 'right';
+        ctx.font = '9px monospace'; // Slightly larger
+        const feetY = drawY + 15;
+
+        const labelX = drawX - 5;
+        const barX = drawX;
+        const barW = 30;
+        const barH = 5;
+
+        // 1. HP Bar (Always)
+        const hpY = feetY;
+        ctx.fillStyle = 'white';
+        ctx.fillText("HP", labelX, hpY + 5);
+
+        ctx.fillStyle = '#555';
+        ctx.fillRect(barX, hpY, barW, barH);
+        ctx.fillStyle = 'lime';
+        if (this.hp < 30) ctx.fillStyle = 'red';
+        ctx.fillRect(barX, hpY, barW * (this.hp / 100), barH);
+
+        if (isActive) {
+            // 2. Fuel Bar (Orange)
+            const fuelY = hpY + 8;
+            ctx.fillStyle = 'white';
+            ctx.fillText("FUEL", labelX, fuelY + 5);
+
+            ctx.fillStyle = '#555';
+            ctx.fillRect(barX, fuelY, barW, barH);
+            ctx.fillStyle = 'orange';
+            // Fuel max is 10. Ensure scaling is correct.
+            const fuelRatio = Math.min(1, Math.max(0, this.fuel / 10));
+            ctx.fillRect(barX, fuelY, barW * fuelRatio, barH);
+
+            // 3. Power Bar (Yellow)
+            const pwrY = fuelY + 8;
+            ctx.fillStyle = 'white';
+            ctx.fillText("PWR", labelX, pwrY + 5);
+
+            ctx.fillStyle = '#555';
+            ctx.fillRect(barX, pwrY, barW, barH);
+            ctx.fillStyle = 'yellow';
+            ctx.fillRect(barX, pwrY, barW * (this.power / 100), barH);
+
+            // Control Hints (Lower)
+            if (!this.isCPU) {
+                ctx.fillStyle = 'rgba(255,255,255,0.7)';
+                ctx.font = '8px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('← Angle →', drawX, pwrY + 15);
+                ctx.fillText('↑ Power ↓', drawX, pwrY + 25);
+            }
+        } else {
+            // Just HP for inactive, keep same layout
+        }      // Bow Visual (SVG)
         const rad = (this.angle * Math.PI) / 180;
         const cx = this.x;
-        const cy = this.y - 35; // Shoulder height (center of rotation)
+        const cy = this.y - 25; // Shoulder height (center of rotation)
 
         ctx.save();
         ctx.translate(cx, cy);
+
+        // Rotate Bow
+        // SVG bow faces Right by default.
+        // If angle is 0 (Right), rotate 0.
+        // Angle is counter-clockwise? No, canvas y is down.
+        // In Game: 0 is Right, 90 is Up, 180 is Left.
+        // Canvas rotate follows this assuming typical coord system?
+        // Wait, `vy = Math.sin(-rad)`. So `rad` is inverted for physics.
+        // Visual rotation: `ctx.rotate(-rad)` matches physics direction.
         ctx.rotate(-rad);
 
-        // 弓本体
-        ctx.beginPath();
-        ctx.strokeStyle = '#8B4513'; // SaddleBrown
-        ctx.lineWidth = 3;
-        // 弓なりの形 (x,y) = (0,0) is center
-        ctx.moveTo(0, -15);
-        ctx.quadraticCurveTo(10, 0, 0, 15);
-        ctx.stroke();
+        if (bowImage.complete) {
+            ctx.drawImage(bowImage, -5, -20, 20, 40); // Scaled 0.5x (was 40x80)
+        } else {
+            // Fallback Bow
+            ctx.beginPath();
+            ctx.strokeStyle = '#8B4513';
+            ctx.lineWidth = 3;
+            ctx.moveTo(0, -15);
+            ctx.quadraticCurveTo(10, 0, 0, 15);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.strokeStyle = '#DDD';
+            ctx.lineWidth = 1;
+            ctx.moveTo(0, -15);
+            ctx.lineTo(0, 15);
+            ctx.stroke();
+        }
 
-        // 弦
-        ctx.beginPath();
-        ctx.strokeStyle = '#DDD';
-        ctx.lineWidth = 1;
-        ctx.moveTo(0, -15);
-        ctx.lineTo(0, 15);
-        ctx.stroke();
-
-        // 矢 (Health Packの時は描画しない、または薬箱を描画？シンプルに矢を描画せず)
+        // Arrow (Keep drawing line arrow for clarity or use image?)
+        // Keep simple line for now, maybe upgrade later if needed.
         if (this.currentWeapon !== 'HEALTH') {
             ctx.beginPath();
             if (this.currentWeapon === 'NORMAL') ctx.strokeStyle = 'white';
@@ -637,7 +858,6 @@ class Player {
             ctx.lineTo(15, -3);
             ctx.moveTo(20, 0);
             ctx.lineTo(15, 3);
-
             ctx.stroke();
         }
 
@@ -666,16 +886,7 @@ class Player {
             ctx.fillText(label, this.x, labelY);
         }
 
-        // HP Bar
-        ctx.fillStyle = 'red';
-        ctx.fillRect(drawX - 15, drawY - 55, 30, 4);
-        ctx.fillStyle = 'lime';
-        ctx.fillRect(drawX - 15, drawY - 55, (30 * Math.max(0, this.hp)) / 100, 4);
-
-        // Fuel Bar (Scale for display since max is variable but usually 10-20ish active)
-        // Max fuel capacity is 100, let's scale it to width 30
-        ctx.fillStyle = 'orange';
-        ctx.fillRect(drawX - 15, drawY - 50, (30 * Math.min(100, this.fuel)) / 100, 2);
+        // HP & Fuel Bars Removed (Moved below player)
     }
 
     move(dir, terrain) {
@@ -705,6 +916,8 @@ class Player {
 // ---------------------------------------------------------
 
 function init() {
+    console.log("Init called");
+    // alert("Init called"); // Debug check
     canvas.width = CONFIG.canvasWidth;
     canvas.height = CONFIG.canvasHeight;
 
@@ -723,7 +936,18 @@ function init() {
     let lastTouch = null;
     window.addEventListener('touchstart', (e) => {
         if (e.target.tagName !== 'BUTTON') {
-            lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+            const touch = e.touches[0];
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const canvasX = (touch.clientX - rect.left) * scaleX;
+            const canvasY = (touch.clientY - rect.top) * scaleY;
+
+            lastTouch = { x: canvasX, y: canvasY }; // Store canvas check
+
+            if (currentState === GameState.SHOP) {
+                handleShopTouch(canvasX, canvasY);
+            }
         }
     }, { passive: false });
 
@@ -731,25 +955,26 @@ function init() {
         if (lastTouch && currentState === GameState.GAME_LOOP && isTurnActive) {
             e.preventDefault(); // Prevent scrolling
             const touch = e.touches[0];
-            const dx = touch.clientX - lastTouch.x;
-            const dy = touch.clientY - lastTouch.y;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const canvasX = (touch.clientX - rect.left) * scaleX;
+            const canvasY = (touch.clientY - rect.top) * scaleY;
+
+            const dx = canvasX - lastTouch.x;
+            const dy = canvasY - lastTouch.y;
 
             const p = players[currentPlayerIndex];
             if (p && !p.isCPU && p.hp > 0) {
-                // Adjust Angle (Horizontal drag) - inverted for "pull" feel? Or direct?
-                // Let's go direct: Right drag -> Angle decreases (aim right?), Left drag -> Angle increases (aim left)
-                // Actually BowMan angle: 0 is Right, 180 is Left.
-                // So dragging Right (positive dx) should decrease angle (towards 0).
+                // Adjust Angle (Horizontal drag) 
                 p.angle -= dx * 0.5;
                 p.angle = Math.max(0, Math.min(180, p.angle));
 
                 // Adjust Power (Vertical drag)
-                // Drag Down (positive dy) -> Decrease power? Or Drag Up -> Increase?
-                // Let's say Drag Up (negative dy) increases power.
                 p.power -= dy * 0.5;
                 p.power = Math.max(0, Math.min(100, p.power));
             }
-            lastTouch = { x: touch.clientX, y: touch.clientY };
+            lastTouch = { x: canvasX, y: canvasY };
         }
     }, { passive: false });
 
@@ -817,6 +1042,10 @@ function initGame() {
     projectiles = [];
     particles = [];
     fires = [];
+    windParticles = [];
+    for (let i = 0; i < 50; i++) {
+        windParticles.push(new WindParticle(CONFIG.canvasWidth, CONFIG.canvasHeight));
+    }
 
     // 風はステージごとに固定
     wind = (Math.random() * 0.2) - 0.1;
@@ -911,6 +1140,30 @@ function gameLoop() {
 
 function updateInput() {
     input.prevKeys = { ...input.keys };
+
+    // Update Mobile Button Labels & Visibility based on State
+    const fireBtn = document.getElementById('btn-fire');
+    const shopControls = document.getElementById('shop-controls');
+
+    if (fireBtn) {
+        if (currentState === GameState.TITLE) {
+            fireBtn.innerText = "START";
+            fireBtn.style.background = "linear-gradient(#4CAF50, #2E7D32)"; // Green
+            if (shopControls) shopControls.style.display = 'none';
+        } else if (currentState === GameState.SHOP) {
+            fireBtn.innerText = "NEXT";
+            fireBtn.style.background = "linear-gradient(#2196F3, #1565C0)"; // Blue
+            if (shopControls) shopControls.style.display = 'flex';
+        } else if (currentState === GameState.RESULT) {
+            fireBtn.innerText = "NEXT";
+            fireBtn.style.background = "linear-gradient(#2196F3, #1565C0)"; // Blue
+            if (shopControls) shopControls.style.display = 'none';
+        } else {
+            fireBtn.innerText = "FIRE";
+            fireBtn.style.background = "linear-gradient(#ff4444, #cc0000)"; // Red
+            if (shopControls) shopControls.style.display = 'none';
+        }
+    }
 }
 
 function isKeyPressed(code) {
@@ -1039,6 +1292,51 @@ function drawTitle() {
 }
 
 // ---------------------------------------------------------
+// ショップ (Overhauled)
+// ---------------------------------------------------------
+
+function handleShopTouch(currentX, currentY) {
+    const p = players[shopCursor];
+    if (p && !p.isCPU) {
+        // Shop Item Hitboxes (approx)
+        // startY = 200, height = 30
+        const startY = 200;
+        const width = 400; // Wide enough
+        const x = 200;
+
+        const items = [
+            { id: 'FIRE', y: startY },
+            { id: 'BOMB', y: startY + 30 },
+            { id: 'HEALTH', y: startY + 60 },
+            { id: 'TRIPLE', y: startY + 90 },
+            { id: 'LASER', y: startY + 120 },
+            { id: 'TRIPLE_FIRE', y: startY + 150 },
+            { id: 'MEGA_BOMB', y: startY + 180 }
+        ];
+
+        for (let item of items) {
+            if (currentX > x && currentX < x + width &&
+                currentY > item.y - 20 && currentY < item.y + 10) {
+                buyItem(p, item.id);
+                // Visual feedback? maybe
+                return;
+            }
+        }
+    }
+}
+
+function cpuShopLogic(cpu) {
+    const p = cpu;
+    if (p.money >= 600 && p.inventory['MEGA_BOMB'] < 1) buyItem(p, 'MEGA_BOMB');
+    else if (p.money >= 450 && p.inventory['TRIPLE_FIRE'] < 1) buyItem(p, 'TRIPLE_FIRE');
+    else if (p.money >= 400 && p.inventory['LASER'] < 1) buyItem(p, 'LASER');
+    else if (p.money >= 300 && p.inventory['BOMB'] < 2) buyItem(p, 'BOMB');
+    else if (p.money >= 250 && p.inventory['TRIPLE'] < 2) buyItem(p, 'TRIPLE');
+    else if (p.money >= 200 && p.inventory['HEALTH'] < 1 && p.hp < 70) buyItem(p, 'HEALTH');
+    else if (p.money >= 150 && p.inventory['FIRE'] < 3) buyItem(p, 'FIRE');
+}
+
+// ---------------------------------------------------------
 // GAME LOOP
 // ---------------------------------------------------------
 
@@ -1053,6 +1351,8 @@ function updateGame() {
     players.forEach(player => player.update(terrain));
     fires.forEach(f => f.update(terrain));
     // fires = fires.filter(f => f.life > 0); // 永続化のため削除
+
+    windParticles.forEach(p => p.update(CONFIG.canvasWidth, wind));
 
     const p = players[currentPlayerIndex];
 
@@ -1086,7 +1386,7 @@ function updateGame() {
             if (isKeyDown('ArrowDown')) p.power = Math.max(0, p.power - 1);
 
             if (isKeyPressed('KeyW') || isKeyPressed('KeyS')) {
-                const types = ['NORMAL', 'FIRE', 'BOMB', 'TRIPLE', 'LASER', 'HEALTH'];
+                const types = ['NORMAL', 'FIRE', 'BOMB', 'TRIPLE', 'LASER', 'TRIPLE_FIRE', 'MEGA_BOMB', 'HEALTH'];
                 let idx = types.indexOf(p.currentWeapon);
                 if (isKeyPressed('KeyW')) idx = (idx + 1) % types.length;
                 if (isKeyPressed('KeyS')) idx = (idx - 1 + types.length) % types.length;
@@ -1324,18 +1624,16 @@ function fireProjectile(player) {
     }
 
     const x = player.x + Math.cos(-rad) * 20;
-    const y = (player.y - 35) + Math.sin(-rad) * 20; // 発射位置調整
+    const y = (player.y - 25) + Math.sin(-rad) * 20; // 発射位置調整 (Shoulder height)
 
-    if (player.currentWeapon === 'TRIPLE') {
+    if (player.currentWeapon === 'TRIPLE' || player.currentWeapon === 'TRIPLE_FIRE') {
         const angles = [-5, 0, 5];
+        const arrowType = (player.currentWeapon === 'TRIPLE_FIRE') ? 'FIRE' : 'NORMAL';
         angles.forEach(offset => {
             const aRad = ((player.angle + offset) * Math.PI) / 180;
             const avx = Math.cos(-aRad) * speed;
             const avy = Math.sin(-aRad) * speed;
-            // Mark as 'NORMAL' to ensure standard behavior, avoiding 'TRIPLE' logic in update/draw if it causes issues.
-            // Or keep 'TRIPLE' if draw logic needs it, but ensure update logic handles it safely.
-            // Previous fix used NORMAL. Let's use NORMAL to be safe.
-            projectiles.push(new Projectile(x, y, avx, avy, player.id, 'NORMAL'));
+            projectiles.push(new Projectile(x, y, avx, avy, player.id, arrowType));
         });
     } else {
         projectiles.push(new Projectile(x, y, vx, vy, player.id, player.currentWeapon));
@@ -1353,6 +1651,15 @@ function drawGame() {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Draw Mountains Background
+    if (mountainsImage.complete) {
+        ctx.save();
+        ctx.globalAlpha = 0.3; // Faint background to improve contrast
+        ctx.drawImage(mountainsImage, 0, canvas.height - 300, canvas.width, 300);
+        ctx.drawImage(mountainsImage, 0, 0, canvas.width, canvas.height); // Full stretch
+        ctx.restore();
+    }
+
     if (bgGradient.top === '#000033') {
         ctx.fillStyle = 'white';
         for (let i = 0; i < 30; i++) {
@@ -1361,6 +1668,10 @@ function drawGame() {
     }
 
     if (terrain) terrain.draw(ctx);
+
+    // Wind Effect
+    windParticles.forEach(p => p.draw(ctx));
+
     players.forEach((player, idx) => player.draw(ctx, idx === currentPlayerIndex));
     fires.forEach(f => f.draw(ctx));
     projectiles.forEach(p => p.draw(ctx));
@@ -1501,6 +1812,8 @@ function updateShop() {
         if (isKeyPressed('Digit3') || isKeyPressed('KeyE')) buyItem(targetPlayer, 'HEALTH');
         if (isKeyPressed('Digit4') || isKeyPressed('KeyR')) buyItem(targetPlayer, 'TRIPLE');
         if (isKeyPressed('Digit5') || isKeyPressed('KeyT')) buyItem(targetPlayer, 'LASER');
+        if (isKeyPressed('Digit6') || isKeyPressed('KeyY')) buyItem(targetPlayer, 'TRIPLE_FIRE');
+        if (isKeyPressed('Digit7') || isKeyPressed('KeyU')) buyItem(targetPlayer, 'MEGA_BOMB');
     }
 
     if (isKeyPressed('Space')) {
@@ -1540,6 +1853,7 @@ function startNextRound() {
         p.isDead = false;
         // 燃料もリセットでいいか？蓄積はターン毎。次ラウンドはリセットでOK
         p.fuel = 10;
+        p.ignoreFallDamage = true; // Safety
     });
 
     fires = []; // ステージ変更時に炎を消去
@@ -1575,18 +1889,23 @@ function drawShop() {
 
         ctx.fillStyle = 'white';
         ctx.font = '20px monospace';
-        ctx.fillText(`Money: $${p.money} | HP: ${p.hp}`, canvas.width / 2, 150);
-        // Inventory line removed, displayed in menu
+        ctx.fillText(`Money: $${p.money}`, canvas.width / 2, 150);
+        // HP not displayed (resets next round)
 
         // メニュー
         if (!p.isCPU) {
-            const startY = 250;
+            const startY = 200; // Moved up slightly
             ctx.textAlign = 'left';
-            ctx.fillText(`[1] Buy Fire Arrow   ($150) [Owned: ${p.inventory.FIRE}]`, 200, startY);
-            ctx.fillText(`[2] Buy Bomb Arrow   ($300) [Owned: ${p.inventory.BOMB}]`, 200, startY + 40);
-            ctx.fillText(`[3] Buy Health Pack  ($200) [Owned: ${p.inventory.HEALTH}]`, 200, startY + 80);
-            ctx.fillText(`[4] Buy Triple Arrow ($250) [Owned: ${p.inventory.TRIPLE}]`, 200, startY + 120);
-            ctx.fillText(`[5] Buy Laser Arrow  ($400) [Owned: ${p.inventory.LASER}]`, 200, startY + 160);
+            const x = 200;
+            // Column 1
+            ctx.fillText(`[1] Buy Fire Arrow   ($150) [Owned: ${p.inventory.FIRE}]`, x, startY);
+            ctx.fillText(`[2] Buy Bomb Arrow   ($300) [Owned: ${p.inventory.BOMB}]`, x, startY + 30);
+            ctx.fillText(`[3] Buy Health Pack  ($200) [Owned: ${p.inventory.HEALTH}]`, x, startY + 60);
+            ctx.fillText(`[4] Buy Triple Arrow ($250) [Owned: ${p.inventory.TRIPLE}]`, x, startY + 90);
+            // Column 2 (or continued)
+            ctx.fillText(`[5] Buy Laser Arrow  ($400) [Owned: ${p.inventory.LASER}]`, x, startY + 120);
+            ctx.fillText(`[6] Buy Triple Fire  ($450) [Owned: ${p.inventory.TRIPLE_FIRE}]`, x, startY + 150);
+            ctx.fillText(`[7] Buy Mega Bomb    ($600) [Owned: ${p.inventory.MEGA_BOMB}]`, x, startY + 180);
         } else {
             ctx.fillStyle = 'gray';
             ctx.fillText("(CPU Buys Automatically)", canvas.width / 2, 250);

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 80">
+  <defs>
+    <radialGradient id="grad1" cx="50%" cy="50%" r="50%" fx="50%" fy="50%">
+      <stop offset="0%" style="stop-color:rgb(255,255,255);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:rgb(200,200,200);stop-opacity:1" />
+    </radialGradient>
+  </defs>
+  <!-- Body -->
+  <rect x="10" y="30" width="20" height="30" fill="url(#grad1)" stroke="black" stroke-width="2" rx="5" ry="5" />
+  <!-- Head -->
+  <circle cx="20" cy="15" r="12" fill="#FFE0BD" stroke="black" stroke-width="2" />
+  <!-- Legs -->
+  <line x1="15" y1="60" x2="10" y2="80" stroke="black" stroke-width="3" />
+  <line x1="25" y1="60" x2="30" y2="80" stroke="black" stroke-width="3" />
+  <!-- Arms (will rely on code for dynamic aiming?) no, SVG is static, code draws arm/bow. -->
+  <!-- Actually, let's keep it simple: Body SVG and Head SVG separate? Or just full body. -->
+  <!-- Let's assume code draws arms dynamically because aiming angle changes. -->
+  <!-- So this SVG is just Head + Torso + Legs standing. -->
+</svg>

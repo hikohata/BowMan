@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 80">
+  <!-- Bow -->
+  <path d="M 20 5 Q 35 40 20 75" fill="none" stroke="#8B4513" stroke-width="4" stroke-linecap="round" />
+  <!-- String -->
+  <line x1="20" y1="5" x2="20" y2="75" stroke="#DDD" stroke-width="1" />
+</svg>

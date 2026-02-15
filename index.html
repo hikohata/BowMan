@@ -3,31 +3,70 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bow Man - 弓男</title>
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Bow Man - PWA</title>
     <link rel="stylesheet" href="style.css">
+
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="icon-512.png">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 
 <body>
     <div id="game-container">
         <canvas id="gameCanvas"></canvas>
-        <div id="touch-area-hint">Drag screen to Aim/Power</div>
     </div>
 
     <!-- Mobile Controls Area (Separate) -->
     <div id="mobile-controls">
-        <div id="move-controls">
-            <button id="btn-left" class="control-btn" ontouchstart="mobileInput('Left', true)"
-                ontouchend="mobileInput('Left', false)">←</button>
-            <button id="btn-right" class="control-btn" ontouchstart="mobileInput('Right', true)"
-                ontouchend="mobileInput('Right', false)">→</button>
+        <center>
+            <div id="touch-area-hint" style="color: gray; font-size: 10px; margin-bottom: 5px;">Drag screen to Aim/Power
+            </div>
+        </center>
+
+        <div class="controls-row">
+            <div id="move-controls">
+                <button id="btn-left" class="control-btn" ontouchstart="mobileInput('Left', true)"
+                    ontouchend="mobileInput('Left', false)">←</button>
+                <button id="btn-right" class="control-btn" ontouchstart="mobileInput('Right', true)"
+                    ontouchend="mobileInput('Right', false)">→</button>
+            </div>
+            <div id="action-controls">
+                <button id="btn-weapon" class="control-btn" onclick="mobileInput('Weapon')">WPN</button>
+                <button id="btn-fire" class="control-btn fire" onclick="mobileInput('Fire')">FIRE</button>
+            </div>
         </div>
-        <div id="action-controls">
-            <button id="btn-weapon" class="control-btn" onclick="mobileInput('Weapon')">WPN</button>
-            <button id="btn-fire" class="control-btn fire" onclick="mobileInput('Fire')">FIRE</button>
+
+        <!-- Shop Controls (Hidden by default) -->
+        <div id="shop-controls"
+            style="display: none; margin-top: 10px; flex-wrap: wrap; justify-content: center; gap: 5px;">
+            <button class="shop-btn" onclick="buyItem(players[shopCursor], 'FIRE')">1:Fire</button>
+            <button class="shop-btn" onclick="buyItem(players[shopCursor], 'BOMB')">2:Bomb</button>
+            <button class="shop-btn" onclick="buyItem(players[shopCursor], 'HEALTH')">3:HP</button>
+            <button class="shop-btn" onclick="buyItem(players[shopCursor], 'TRIPLE')">4:Tri</button>
+            <button class="shop-btn" onclick="buyItem(players[shopCursor], 'LASER')">5:Lsr</button>
+            <button class="shop-btn" onclick="buyItem(players[shopCursor], 'TRIPLE_FIRE')">6:3Fire</button>
+            <button class="shop-btn" onclick="buyItem(players[shopCursor], 'MEGA_BOMB')">7:Mega</button>
         </div>
     </div>
     <script src="game.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+    </script>
 </body>
 
 </html>
