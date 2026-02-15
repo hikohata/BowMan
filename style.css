@@ -107,42 +107,116 @@ canvas {
     background: #666;
 }
 
+/* RESTORE LAYOUT (Fix for Vertical Stacking) */
 #move-controls,
 #action-controls {
     display: flex;
+    flex-direction: row;
+    /* Force horizontal */
     align-items: center;
-    gap: 10px;
-    margin-bottom: 5px;
+    gap: 5px;
+    /* Reduced gap */
+    margin-bottom: 2px;
+    /* Reduced margin */
 }
 
-/* Container for main controls row */
-div:has(> #move-controls) {
-    /* This selector might be tricky without a wrapper class. Let's just wrap them in HTML if needed, or rely on flex-direction: row for a wrapper */
-}
-
-/* Actually, let's wrap Move and Action in a row */
 .controls-row {
     display: flex;
+    flex-direction: row;
+    /* Force horizontal */
     justify-content: space-between;
+    align-items: center;
     width: 100%;
     max-width: 600px;
     margin-bottom: 5px;
 }
 
-.shop-btn {
-    width: 50px;
-    height: 40px;
-    background: #555;
+/* Modern Control Buttons (Small) */
+.control-btn {
+    width: 35px;
+    /* Reduced from 60px */
+    height: 35px;
+    /* Reduced from 60px */
+    margin: 2px;
+    /* Reduced from 5px */
+    font-size: 14px;
+    /* Reduced from 24px */
     color: white;
-    border: 1px solid #777;
-    border-radius: 5px;
+    background: linear-gradient(145deg, #555, #333);
+    border: none;
+    border-radius: 50%;
+    /* Circle for directions */
+    box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5), -1px -1px 2px rgba(255, 255, 255, 0.1);
+    cursor: pointer;
+    touch-action: manipulation;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    transition: all 0.1s ease;
+}
+
+.control-btn:active {
+    background: linear-gradient(145deg, #333, #555);
+    box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.5);
+    transform: translateY(1px);
+}
+
+/* Action Buttons (Pill / Rounded Rect) - Small */
+#action-controls .control-btn {
+    width: auto;
+    min-width: 40px;
+    /* Reduced from 70px */
+    height: 30px;
+    /* Reduced from 50px */
+    border-radius: 15px;
+    /* Pill shape */
+    padding: 0 10px;
+    /* Reduced padding */
+    font-size: 12px;
+    /* Reduced font size */
+}
+
+/* Specific button colors (Gradients) */
+#btn-fire {
+    background: linear-gradient(145deg, #ff4444, #cc0000) !important;
+}
+
+#btn-fire:active {
+    background: linear-gradient(145deg, #cc0000, #ff4444) !important;
+}
+
+#btn-weapon {
+    background: linear-gradient(145deg, #44cc44, #228822);
+}
+
+#btn-reset {
+    background: linear-gradient(145deg, #ff8800, #cc6600);
+    /* Orange */
+    font-size: 10px;
+    /* Smaller text for RST */
+    min-width: 30px;
+    /* Smaller pill */
+    padding: 0 5px;
+}
+
+/* Shop Buttons (Rounded Rect) */
+.shop-btn {
+    width: 60px;
+    height: 45px;
+    background: linear-gradient(145deg, #555, #333);
+    color: white;
+    border: none;
+    border-radius: 10px;
     font-size: 12px;
     cursor: pointer;
-    margin: 2px;
+    margin: 3px;
+    box-shadow: 2px 2px 4px rgba(0, 0, 0, 0.4);
 }
 
 .shop-btn:active {
-    background: #777;
+    background: linear-gradient(145deg, #333, #555);
+    box-shadow: inset 1px 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 #touch-area-hint {

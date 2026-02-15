@@ -59,6 +59,7 @@
                     ontouchend="mobileInput('Right', false)">→</button>
             </div>
             <div id="action-controls">
+                <button id="btn-reset" class="control-btn" style="margin-right: 15px;" onclick="hardReload()">RST</button>
                 <button id="btn-weapon" class="control-btn" onclick="mobileInput('Weapon')">WPN</button>
                 <button id="btn-fire" class="control-btn fire" onclick="mobileInput('Fire')">FIRE</button>
             </div>
@@ -90,6 +91,23 @@
                         console.log('ServiceWorker registration failed: ', err);
                     });
             });
+        }
+
+        // Hard Reload Function for PWA
+        async function hardReload() {
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                for (let registration of registrations) {
+                    await registration.unregister();
+                }
+            }
+            // Clear caches
+            if ('caches' in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(key => caches.delete(key)));
+            }
+            // Reload page with cache bypass
+            window.location.reload(true);
         }
     </script>
 </body>
