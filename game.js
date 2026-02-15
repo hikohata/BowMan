@@ -362,6 +362,52 @@ class Projectile {
 
                 if (damage > 0) {
                     p.takeDamage(damage);
+
+                    // Check if fatal kill (need to check if p died JUST NOW)
+                    // But updateGame handles death transition.
+                    // However, we want to give money immediately?
+                    // No, updateGame checks `hp <= 0 && isTurnActive`.
+                    // Does Projectile.explode run BEFORE updateGame check?
+                    // Yes. p.takeDamage reduces HP.
+                    // If HP becomes <= 0, `updateGame` will see it.
+                    // BUT, `updateGame` handles "Falling Death" specifically?
+                    // It says "Falling/HP0".
+                    // `if (p.hp <= 0 && isTurnActive)`
+                    // This block runs if CURRENT PLAYER is dead.
+
+                    // ISSUE: If I shoot YOU and YOU die, `p` in updateGame is ME.
+                    // `p` in updateGame loop is `players[currentPlayerIndex]`.
+                    // If *I* (current player) kill *YOU* (target), *YOU* are dead.
+                    // But `updateGame` logic only checks if *current player* is dead?
+                    // Wait, let's check `updateGame` again.
+                    // Line 1037: `const p = players[currentPlayerIndex]; ... if (p.hp <= 0 ...)`
+                    // This only ends turn if *current player* dies (e.g. suicide/falling).
+
+                    // What if I kill ENEMY?
+                    // `nextTurn` logic: `do { currentPlayerIndex++ } while (players[currentPlayerIndex].hp <= 0);`
+                    // It just skips dead players.
+                    // But we want to give money to the dead guy (Rank Reward).
+
+                    // So we must detect death HERE in explode?
+                    // Or in a general "check deaths" function.
+
+                    if (p.hp <= 0) {
+                        // Check if this is the first time we realized they are dead?
+                        // We don't want to give money repeatedly.
+                        // Maybe check `p.hp <= 0` but `p.isDead` flag?
+                        // Add `isDead` property to Player?
+                        if (!p.isDead) {
+                            p.isDead = true;
+                            const survivors = players.filter(pl => pl.hp > 0).length;
+                            const rank = survivors + 1;
+                            let reward = 100;
+                            if (rank === 2) reward = 500;
+                            else if (rank === 3) reward = 300;
+                            else if (rank === 4) reward = 200;
+                            console.log(`Player ${p.id} died (Hit). Rank ${rank}. Reward: $${reward}`);
+                            p.money += reward;
+                        }
+                    }
                 }
             }
         });
@@ -468,6 +514,7 @@ class Player {
         this.money = 0;
         this.isCPU = isCPU;
         this.isStable = true; // 着地しているか
+        this.isDead = false;
 
         this.inventory = {
             'FIRE': 0,
@@ -511,14 +558,15 @@ class Player {
             ctx.lineTo(drawX + 10, drawY - 85);
             ctx.fill();
 
-            // Power Bar (Visual)
+            // Power Bar (Visual) - Moved below feet
+            const barY = drawY + 45;
             ctx.fillStyle = 'white';
-            ctx.fillRect(drawX - 25, drawY - 65, 50, 6);
+            ctx.fillRect(drawX - 25, barY, 50, 6);
             ctx.fillStyle = `hsl(${this.power}, 100%, 50%)`; // Color based on power
-            ctx.fillRect(drawX - 25, drawY - 65, 50 * (this.power / 100), 6);
+            ctx.fillRect(drawX - 25, barY, 50 * (this.power / 100), 6);
             ctx.strokeStyle = 'black';
             ctx.lineWidth = 1;
-            ctx.strokeRect(drawX - 25, drawY - 65, 50, 6);
+            ctx.strokeRect(drawX - 25, barY, 50, 6);
 
             // Control Hints
             if (!this.isCPU) {
@@ -595,12 +643,27 @@ class Player {
 
         ctx.restore();
 
-        // CPU表示
-        if (this.isCPU) {
+        // Player Label (Only for Human Players)
+        if (!this.isCPU) {
             ctx.fillStyle = 'white';
             ctx.font = '10px monospace';
             ctx.textAlign = 'center';
-            ctx.fillText('CPU', this.x, drawY - 50);
+            let label = `Player ${this.id}`;
+
+            // Add background for readability
+            const textWidth = ctx.measureText(label).width;
+
+            // "label to be a bit higher (below current player ▼)"
+            // Triangle bottom is drawY - 70.
+            // HP Bar top is drawY - 55.
+            // Let's try drawY - 62.
+            const labelY = drawY - 62;
+
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillRect(this.x - textWidth / 2 - 2, labelY - 10, textWidth + 4, 14);
+
+            ctx.fillStyle = 'white';
+            ctx.fillText(label, this.x, labelY);
         }
 
         // HP Bar
@@ -764,17 +827,30 @@ function initGame() {
     const totalPlayers = settingHumans + settingCPUs;
     const colors = ['red', 'blue', 'green', 'yellow', 'purple', 'cyan', 'magenta', 'orange', 'lime', 'pink'];
 
+    // Generate players first
     for (let i = 0; i < totalPlayers; i++) {
         const isCPU = i >= settingHumans;
         const color = colors[i % colors.length];
-        const startX = (CONFIG.canvasWidth / (totalPlayers + 1)) * (i + 1);
-        const p = new Player(i + 1, color, startX, isCPU);
-
-        // 初期向き調整（画面左側は右向き、右側は左向き目安）
-        p.angle = startX < CONFIG.canvasWidth / 2 ? 45 : 135;
-
+        // Temporary X, will be set after shuffle
+        const p = new Player(i + 1, color, 0, isCPU);
         players.push(p);
     }
+
+    // Shuffle players for random turn order
+    for (let i = players.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [players[i], players[j]] = [players[j], players[i]];
+    }
+
+    // Assign positions based on shuffled order (Left -> Right = Turn 1 -> N)
+    players.forEach((p, index) => {
+        p.x = (CONFIG.canvasWidth / (players.length + 1)) * (index + 1);
+        p.angle = (p.x < CONFIG.canvasWidth / 2) ? 45 : 135;
+        // If CPU, randomize angle slightly
+        if (p.isCPU) {
+            p.angle = Math.floor(Math.random() * 180);
+        }
+    });
 
     currentPlayerIndex = 0;
     isTurnActive = true;
@@ -878,12 +954,17 @@ function nextTurn() {
     const alivePlayers = players.filter(p => p.hp > 0);
     if (alivePlayers.length <= 1) {
         if (alivePlayers.length === 1) {
+            // Winner gets Rank 1 Reward
+            console.log(`Player ${alivePlayers[0].id} WINS! Reward: $1000`);
             alivePlayers[0].money += 1000;
         }
 
         // ショップ移行前の処理
         // CPUの買い物ロジックを実行してからショップへ
         players.filter(p => p.isCPU).forEach(cpu => cpuShopLogic(cpu));
+
+        // Sort players by ID for Shop Display (Player 1 -> Player 2...)
+        players.sort((a, b) => a.id - b.id);
 
         shopCursor = 0; // ショップのリセット
         currentState = GameState.SHOP;
@@ -1038,6 +1119,21 @@ function updateGame() {
         console.log(`Player ${p.id} Died (Falling/HP0). Y=${p.y}`);
         isTurnActive = false;
         hasActionTaken = true; // Treat death as action
+
+        // --- Ranked Money Reward ---
+        // Rank = (Survivors + 1)
+        // Survivors excluding self (who just died)
+        const survivors = players.filter(pl => pl.hp > 0 && pl !== p).length;
+        const rank = survivors + 1;
+        let reward = 100;
+        if (rank === 2) reward = 500;
+        else if (rank === 3) reward = 300;
+        else if (rank === 4) reward = 200;
+
+        console.log(`Player ${p.id} finished Rank ${rank}. Reward: $${reward}`);
+        p.money += reward;
+        // ---------------------------
+
         setTimeout(() => {
             nextTurn();
         }, 1000);
@@ -1355,20 +1451,36 @@ function drawHUD() {
 // ---------------------------
 
 function cpuShopLogic(cpu) {
-    if (cpu.hp < 50 && cpu.money >= ITEMS.HEALTH.price) {
-        buyItem(cpu, 'HEALTH');
-    }
-    if (cpu.money >= ITEMS.LASER.price) {
-        buyItem(cpu, 'LASER');
-    }
-    if (cpu.money >= ITEMS.TRIPLE.price) {
-        buyItem(cpu, 'TRIPLE');
-    }
-    if (cpu.money >= ITEMS.BOMB.price) {
-        buyItem(cpu, 'BOMB');
-    }
-    if (cpu.money >= ITEMS.FIRE.price) {
-        buyItem(cpu, 'FIRE');
+    const budget = cpu.money;
+    let attempts = 0;
+    while (cpu.money >= 150 && attempts < 10) { // Keep buying while affordable (min price 150)
+        let purchased = false;
+
+        // Priority 1: Health if low
+        if (cpu.hp < 50 && cpu.money >= ITEMS.HEALTH.price && (cpu.inventory.HEALTH || 0) < 2) {
+            buyItem(cpu, 'HEALTH');
+            purchased = true;
+        }
+        // Priority 2: High power weapons
+        else if (cpu.money >= ITEMS.LASER.price && (cpu.inventory.LASER || 0) < 3) {
+            buyItem(cpu, 'LASER');
+            purchased = true;
+        }
+        else if (cpu.money >= ITEMS.TRIPLE.price && (cpu.inventory.TRIPLE || 0) < 3) {
+            buyItem(cpu, 'TRIPLE');
+            purchased = true;
+        }
+        else if (cpu.money >= ITEMS.BOMB.price && (cpu.inventory.BOMB || 0) < 3) {
+            buyItem(cpu, 'BOMB');
+            purchased = true;
+        }
+        else if (cpu.money >= ITEMS.FIRE.price && (cpu.inventory.FIRE || 0) < 5) {
+            buyItem(cpu, 'FIRE');
+            purchased = true;
+        }
+
+        if (!purchased) break; // Couldn't afford or need anything
+        attempts++;
     }
 }
 
@@ -1410,16 +1522,22 @@ function startNextRound() {
     terrain = new Terrain(CONFIG.canvasWidth, CONFIG.canvasHeight);
     randomizeBackground();
 
-    // 風も更新（ステージ毎）
-    wind = (Math.random() * 0.2) - 0.1;
+    // Reset loop
+    // Shuffle players for random turn order
+    for (let i = players.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [players[i], players[j]] = [players[j], players[i]];
+    }
 
     players.forEach((p, index) => {
         p.hp = 100;
         p.prevHp = 100;
+        // Assign X based on new shuffled order -> Left to Right is Turn 1 -> N
         p.x = (CONFIG.canvasWidth / (players.length + 1)) * (index + 1);
         p.y = 0;
-        p.angle = index === 1 ? 135 : 45;
+        p.angle = (p.x < CONFIG.canvasWidth / 2) ? 45 : 135;
         p.isStable = true;
+        p.isDead = false;
         // 燃料もリセットでいいか？蓄積はターン毎。次ラウンドはリセットでOK
         p.fuel = 10;
     });
