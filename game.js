@@ -985,8 +985,20 @@ function init() {
     // Expose for HTML buttons
     // Expose for HTML buttons (New Logic)
     window.mobileInput = function (action, isDown) {
-        if (action === 'Left') input.keys['ArrowLeft'] = isDown;
-        if (action === 'Right') input.keys['ArrowRight'] = isDown;
+        if (action === 'Left') {
+            if (currentState === GameState.GAME_LOOP) {
+                input.keys['KeyA'] = isDown; // Move Left
+            } else {
+                input.keys['ArrowLeft'] = isDown; // Menu/Title
+            }
+        }
+        if (action === 'Right') {
+            if (currentState === GameState.GAME_LOOP) {
+                input.keys['KeyD'] = isDown; // Move Right
+            } else {
+                input.keys['ArrowRight'] = isDown; // Menu/Title
+            }
+        }
         if (action === 'Up') input.keys['ArrowUp'] = isDown;
         if (action === 'Down') input.keys['ArrowDown'] = isDown;
 
@@ -1133,8 +1145,22 @@ function updateInput() {
     const fireBtn = document.getElementById('btn-fire');
     const shopControls = document.getElementById('shop-controls');
 
-    // Display CPU count on Title screen helper
+    // NEW: Title Controls (CPU Count) -> Updated for Mini Display
     const cpuDisplayMini = document.getElementById('cpu-display-mini');
+
+    // v13: Hide Up/Down buttons during gameplay (only for Title CPU Adjustment)
+    const btnUp = document.getElementById('btn-up');
+    const btnDown = document.getElementById('btn-down');
+
+    if (btnUp && btnDown) {
+        if (currentState === GameState.TITLE) {
+            btnUp.style.display = ''; // Restore default (block/inline-block/flex item)
+            btnDown.style.display = '';
+        } else {
+            btnUp.style.display = 'none';
+            btnDown.style.display = 'none';
+        }
+    }
 
     if (cpuDisplayMini) {
         // Removed as per request (redundant with title screen display)
